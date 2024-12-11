@@ -33,7 +33,6 @@ type ObjectMetadata struct {
 	Name            string            `json:"name"`
 	Namespace       string            `json:"namespace,omitempty"`
 	Labels          map[string]string `json:"labels,omitempty"`
-	Annotations     map[string]string `json:"annotations,omitempty"`
 	ResourceVersion string            `json:"resourceVersion"`
 }
 
@@ -80,7 +79,7 @@ func (g *Generator) GenerateValue(resourceType, namespace, name string) ([]byte,
 		},
 	}
 
-	// Add some dummy spec and status data
+	// Add dummy spec and status data
 	spec := map[string]interface{}{
 		"replicas": rand.Intn(5) + 1,
 		"selector": map[string]interface{}{
@@ -109,7 +108,6 @@ func (g *Generator) GenerateValue(resourceType, namespace, name string) ([]byte,
 	return json.Marshal(resource)
 }
 
-// generateLabels creates random labels
 func (g *Generator) generateLabels() map[string]string {
 	labels := make(map[string]string)
 	environments := []string{"dev", "staging", "prod", "test"}
@@ -119,4 +117,36 @@ func (g *Generator) generateLabels() map[string]string {
 	labels["team"] = teams[rand.Intn(len(teams))]
 
 	return labels
+}
+
+func (g *Generator) generateName(resourceType string) string {
+	nouns := []string{"nginx", "redis", "postgres", "website", "nodejs", "mysql", "kafka", "zookeeper", "rabbitmq"}
+	regions := []string{"us-west", "us-east", "eu-west", "eu-east", "asia", "africa", "meast"}
+	return fmt.Sprintf("%s-%s-%s%d-%d",
+		resourceType[:3],
+		nouns[rand.Intn(len(nouns))],
+		regions[rand.Intn(len(regions))],
+		rand.Intn(10),
+		rand.Intn(1000))
+}
+
+func (g *Generator) GenerateData(count int) map[string][]byte {
+	data := make(map[string][]byte)
+
+	for i := 0; i < count; i++ {
+		resourceType := g.resourceTypes[rand.Intn(len(g.resourceTypes))]
+		namespace := g.namespaces[rand.Intn(len(g.namespaces))]
+		name := g.generateName(resourceType)
+
+		key := g.GenerateKey(resourceType, namespace, name)
+		value, err := g.GenerateValue(resourceType, namespace, name)
+		if err != nil {
+			fmt.Printf("Error generating value for %s: %v\n", key, err)
+			continue
+		}
+
+		data[key] = value
+	}
+
+	return data
 }
