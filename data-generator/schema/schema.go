@@ -36,7 +36,7 @@ type ObjectMetadata struct {
 	ResourceVersion string            `json:"resourceVersion"`
 }
 
-func (g *Generator) New() *Generator {
+func NewGenerator() *Generator {
 	return &Generator{
 		resourceTypes: DEFAULT_RESOURCE_TYPES[:],
 		namespaces:    DEFAULT_NAMESPACES[:],
