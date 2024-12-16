@@ -3,15 +3,18 @@
 package schema
 
 import (
+	cmd "csb/control/cmd"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"strings"
 )
 
 var DEFAULT_RESOURCE_TYPES = []string{"pods", "services", "configmaps", "secrets", "deployments"}
 var DEFAULT_NAMESPACES = []string{"default", "kube-system", "monitoring", "application"}
 var DEFAULT_RV int64 = 1
+
+// use the random generator from the root command
+var rand = cmd.Rg
 
 type Generator struct {
 	resourceTypes []string
