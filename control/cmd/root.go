@@ -13,8 +13,12 @@ import (
 const DEFAULT_CONFIG_DIR = ".benchctl"
 const DEFAULT_CONFIG_FILE = "config.json"
 
-// default random generator for all the subcommands
-var Rg *rand.Rand
+type GlobalConfig struct {
+	rg        *rand.Rand // default random generator for all the subcommands
+	ctlConfig *config.BenchctlConfig
+}
+
+var GConfig *GlobalConfig = &GlobalConfig{}
 
 var rootCmd = &cobra.Command{
 	Use:   "benchctl [command] [flags]",
@@ -60,6 +64,8 @@ func init_config_file(dirname string) {
 	if _, err := os.Stat(configFilePath); err != nil {
 		if os.IsNotExist(err) {
 			defaultConfig := config.GetDefaultConfig()
+			GConfig.rg = rand.New(rand.NewSource(defaultConfig.Seed))
+			GConfig.ctlConfig = defaultConfig
 			err = defaultConfig.WriteConfig(configFilePath)
 			if err != nil {
 				fmt.Println("Failed to write default config file: ", err)
@@ -75,7 +81,8 @@ func init_config_file(dirname string) {
 			fmt.Println("Failed to read config file: ", err)
 			os.Exit(1)
 		}
-		Rg = rand.New(rand.NewSource(localConfig.Seed))
+		GConfig.rg = rand.New(rand.NewSource(localConfig.Seed))
+		GConfig.ctlConfig = localConfig
 	}
 }
 

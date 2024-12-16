@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 
+	dg "csb/data-generator"
+
 	"github.com/spf13/cobra"
 )
 
@@ -27,10 +29,19 @@ var LoadCmd = &cobra.Command{
 				fmt.Printf("Invalid count: %s\n", args[0])
 			}
 			fmt.Printf("Loading %d records into the database via the following endpoints: %v\n", count, endpoints)
+			load_db(count)
 		}
 	},
 }
 
 func init() {
 	LoadCmd.Flags().StringSliceVar(&endpoints, "endpoints", []string{"127.0.0.1:2379"}, "List of endpoints of the database to load data into")
+}
+
+func load_db(count int) {
+	dataGenerator := dg.NewGenerator(GConfig.rg)
+	data := dataGenerator.GenerateData(count)
+	for k := range data {
+		fmt.Println("Key: ", k)
+	}
 }

@@ -1,11 +1,11 @@
 // Description: This package provides a schema for the synthetic K8s data generator.
 // We assume that all textual information is in English, so we only handle ASCII characters.
-package schema
+package generator
 
 import (
-	cmd "csb/control/cmd"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"strings"
 )
 
@@ -13,13 +13,11 @@ var DEFAULT_RESOURCE_TYPES = []string{"pods", "services", "configmaps", "secrets
 var DEFAULT_NAMESPACES = []string{"default", "kube-system", "monitoring", "application"}
 var DEFAULT_RV int64 = 1
 
-// use the random generator from the root command
-var rand = cmd.Rg
-
 type Generator struct {
 	resourceTypes []string
 	namespaces    []string
 	rv            int64 // Resource version counter
+	rg            *rand.Rand
 }
 
 // Represents common metadata for K8s resources
@@ -39,11 +37,12 @@ type ObjectMetadata struct {
 	ResourceVersion string            `json:"resourceVersion"`
 }
 
-func NewGenerator() *Generator {
+func NewGenerator(rg *rand.Rand) *Generator {
 	return &Generator{
 		resourceTypes: DEFAULT_RESOURCE_TYPES[:],
 		namespaces:    DEFAULT_NAMESPACES[:],
 		rv:            DEFAULT_RV,
+		rg:            rg,
 	}
 }
 
@@ -70,6 +69,7 @@ func (g *Generator) GenerateKey(resourceType, namespace, name string) string {
 // GenerateValue creates a synthetic value for the resource
 func (g *Generator) GenerateValue(resourceType, namespace, name string) ([]byte, error) {
 	g.rv++ // Increment resource version
+	rand := g.rg
 
 	resource := ResourceMetadata{
 		APIVersion: "v1",
@@ -112,6 +112,7 @@ func (g *Generator) GenerateValue(resourceType, namespace, name string) ([]byte,
 }
 
 func (g *Generator) generateLabels() map[string]string {
+	rand := g.rg
 	labels := make(map[string]string)
 	environments := []string{"dev", "staging", "prod", "test"}
 	teams := []string{"frontend", "backend", "data", "platform", "devops", "ml"}
@@ -123,6 +124,7 @@ func (g *Generator) generateLabels() map[string]string {
 }
 
 func (g *Generator) generateName(resourceType string) string {
+	rand := g.rg
 	nouns := []string{"nginx", "redis", "postgres", "website", "nodejs", "mysql", "kafka", "zookeeper", "rabbitmq"}
 	regions := []string{"us-west", "us-east", "eu-west", "eu-east", "asia", "africa", "meast"}
 	return fmt.Sprintf("%s-%s-%s%d-%d",
@@ -134,6 +136,7 @@ func (g *Generator) generateName(resourceType string) string {
 }
 
 func (g *Generator) GenerateData(count int) map[string][]byte {
+	rand := g.rg
 	data := make(map[string][]byte)
 
 	for i := 0; i < count; i++ {
