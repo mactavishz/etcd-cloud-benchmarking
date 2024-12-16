@@ -3,9 +3,10 @@ package cmd
 import (
 	config "csb/control/config"
 	"fmt"
-	"github.com/spf13/cobra"
 	"math/rand"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 // placed under $HOME/.benchctl/config.json

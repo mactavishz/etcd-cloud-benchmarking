@@ -2,8 +2,9 @@ package config
 
 import (
 	"encoding/json"
-	validator "github.com/go-playground/validator/v10"
 	"os"
+
+	validator "github.com/go-playground/validator/v10"
 )
 
 type BenchctlConfig struct {
