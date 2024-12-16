@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 var DEFAULT_RESOURCE_TYPES = []string{"pods", "services", "configmaps", "secrets", "deployments"}
@@ -127,17 +130,26 @@ func (g *Generator) generateName(resourceType string) string {
 	rand := g.rg
 	nouns := []string{"nginx", "redis", "postgres", "website", "nodejs", "mysql", "kafka", "zookeeper", "rabbitmq"}
 	regions := []string{"us-west", "us-east", "eu-west", "eu-east", "asia", "africa", "meast"}
-	return fmt.Sprintf("%s-%s-%s%d-%d",
+	return fmt.Sprintf("%s-%s-%s%d-%s",
 		resourceType[:3],
 		nouns[rand.Intn(len(nouns))],
 		regions[rand.Intn(len(regions))],
 		rand.Intn(10),
-		rand.Intn(1000))
+		uuid.New().String())
 }
 
 func (g *Generator) GenerateData(count int) map[string][]byte {
 	rand := g.rg
+	uuid.SetRand(rand)
 	data := make(map[string][]byte)
+
+	// Generate all entries first in a deterministic order
+	type entry struct {
+		key   string
+		value []byte
+	}
+
+	entries := make([]entry, 0, count)
 
 	for i := 0; i < count; i++ {
 		resourceType := g.resourceTypes[rand.Intn(len(g.resourceTypes))]
@@ -145,13 +157,33 @@ func (g *Generator) GenerateData(count int) map[string][]byte {
 		name := g.generateName(resourceType)
 
 		key := g.GenerateKey(resourceType, namespace, name)
-		value, err := g.GenerateValue(resourceType, namespace, name)
-		if err != nil {
-			fmt.Printf("Error generating value for %s: %v\n", key, err)
+
+		// Check for duplicates before generating value
+		if _, exists := data[key]; exists {
+			fmt.Printf("Duplicate key generated: %s, will try again\n", key)
+			i--
 			continue
 		}
 
-		data[key] = value
+		value, err := g.GenerateValue(resourceType, namespace, name)
+		if err != nil {
+			fmt.Printf("Error generating value for %s: %v, will try again\n", key, err)
+			// try again
+			i--
+			continue
+		}
+
+		entries = append(entries, entry{key: key, value: value})
+	}
+
+	// Sort entries by key to ensure deterministic ordering
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].key < entries[j].key
+	})
+
+	// Populate the map in sorted order
+	for _, e := range entries {
+		data[e.key] = e.value
 	}
 
 	return data
