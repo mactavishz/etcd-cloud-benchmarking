@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"context"
@@ -30,16 +30,16 @@ var LoadCmd = &cobra.Command{
 	Long:  "Generate number of records specified by <count> and load them into the database via the provided endpoints",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		log.SetPrefix("[LOAD] ")
 		var err error
 		if len(endpoints) == 0 {
-			fmt.Println("Please provide at least one endpoint")
-			os.Exit(1)
+			log.Fatalln("Please provide at least one endpoint")
 		} else {
 			count, err = strconv.Atoi(args[0])
 			if err != nil {
-				fmt.Printf("Invalid count: %s\n", args[0])
+				log.Fatalf("Invalid count: %s\n", args[0])
 			}
-			fmt.Printf("Loading %d records into the database via the following endpoints: %v\n", count, endpoints)
+			log.Printf("Loading %d records into the database via the following endpoints: %v\n", count, endpoints)
 			load_db(count, endpoints)
 		}
 	},
@@ -52,6 +52,7 @@ func init() {
 func load_db(count int, endpoints []string) {
 	dataGenerator := dg.NewGenerator(GConfig.rg)
 	data := dataGenerator.GenerateData(count)
+	keys := make([]string, 0, len(data))
 
 	dbClient, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
@@ -65,6 +66,7 @@ func load_db(count int, endpoints []string) {
 	var wg sync.WaitGroup
 
 	for key, value := range data {
+		keys = append(keys, key)
 		wg.Add(1)
 		go func(key string, value []byte) {
 			defer wg.Done()
@@ -86,5 +88,8 @@ func load_db(count int, endpoints []string) {
 		}(key, value)
 	}
 	wg.Wait()
-	fmt.Println("Data loaded successfully")
+	log.Println("Saving keys in the config folder")
+	err = os.WriteFile(GConfig.ctlConfigPath+"/keys.txt", []byte(strings.Join(keys, "\n")), 0644)
+	log.Println("Keys saved successfully")
+	log.Println("Data loaded successfully")
 }

@@ -14,8 +14,9 @@ const DEFAULT_CONFIG_DIR = ".benchctl"
 const DEFAULT_CONFIG_FILE = "config.json"
 
 type GlobalConfig struct {
-	rg        *rand.Rand // default random generator for all the subcommands
-	ctlConfig *config.BenchctlConfig
+	rg            *rand.Rand // default random generator for all the subcommands
+	ctlConfig     *config.BenchctlConfig
+	ctlConfigPath string
 }
 
 var GConfig *GlobalConfig = &GlobalConfig{}
@@ -44,6 +45,7 @@ func init_config() {
 		os.Exit(1)
 	}
 	configDir := homedir + "/" + DEFAULT_CONFIG_DIR
+	GConfig.ctlConfigPath = configDir
 	if _, err := os.Stat(configDir); err != nil {
 		if os.IsNotExist(err) {
 			if err = os.MkdirAll(configDir, 0755); err != nil {

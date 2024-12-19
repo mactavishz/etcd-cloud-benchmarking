@@ -1,6 +1,6 @@
 module csb/client
 
-go 1.22.5
+go 1.23.4
 
 require go.etcd.io/etcd/client/v3 v3.5.17
 
