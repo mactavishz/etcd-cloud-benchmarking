@@ -5,6 +5,10 @@ MODULES := ./client ./control ./data-generator ./trace-generator
 
 .PHONY: client control run-client run-control clean test
 
+all:
+	@$(MAKE) --no-print-directory -C $(SUBDIR_CONTROL) all
+	@$(MAKE) --no-print-directory -C $(SUBDIR_CLIENT) all
+
 client:
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CLIENT) all
 
