@@ -4,5 +4,4 @@ use (
 	./client
 	./control
 	./data-generator
-	./trace-generator
 )

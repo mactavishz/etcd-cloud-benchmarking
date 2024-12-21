@@ -1,7 +1,7 @@
 SUBDIR_CLIENT=client
 SUBDIR_CONTROL=control
 DEFAULT_ETCD_DIR=./default.etcd
-MODULES := ./client ./control ./data-generator ./trace-generator
+MODULES := ./client ./control ./data-generator
 
 .PHONY: client control run-client run-control clean test
 
@@ -29,5 +29,5 @@ clean:
 test:
 	@for dir in $(MODULES); do \
 		echo "Testing $$dir..."; \
-		(cd $$dir && go test -v ./...) || exit 1; \
+		(cd $$dir && go clean -testcache && go test -v ./...) || exit 1; \
 	done
