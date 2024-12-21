@@ -3,11 +3,9 @@
 package generator
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sort"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -21,23 +19,6 @@ type Generator struct {
 	namespaces    []string
 	rv            int64 // Resource version counter
 	rg            *rand.Rand
-}
-
-// Represents common metadata for K8s resources
-type ResourceMetadata struct {
-	APIVersion string          `json:"apiVersion"`
-	Kind       string          `json:"kind"`
-	Metadata   ObjectMetadata  `json:"metadata"`
-	Spec       json.RawMessage `json:"spec"`
-	Status     json.RawMessage `json:"status"`
-}
-
-// Represents K8s object metadata
-type ObjectMetadata struct {
-	Name            string            `json:"name"`
-	Namespace       string            `json:"namespace,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	ResourceVersion string            `json:"resourceVersion"`
 }
 
 func NewGenerator(rg *rand.Rand) *Generator {
@@ -70,60 +51,13 @@ func (g *Generator) GenerateKey(resourceType, namespace, name string) string {
 }
 
 // GenerateValue creates a synthetic value for the resource
-func (g *Generator) GenerateValue(resourceType, namespace, name string) ([]byte, error) {
-	g.rv++ // Increment resource version
-	rand := g.rg
-
-	resource := ResourceMetadata{
-		APIVersion: "v1",
-		Kind:       strings.TrimSuffix(strings.ToUpper(string(resourceType[0]))+string(resourceType[1:]), "s"),
-		Metadata: ObjectMetadata{
-			Name:            name,
-			Namespace:       namespace,
-			Labels:          g.generateLabels(),
-			ResourceVersion: fmt.Sprintf("%d", g.rv),
-		},
-	}
-
-	// Add dummy spec and status data
-	spec := map[string]interface{}{
-		"replicas": rand.Intn(5) + 1,
-		"selector": map[string]interface{}{
-			"matchLabels": resource.Metadata.Labels,
-		},
-	}
-
-	status := map[string]interface{}{
-		"availableReplicas": spec["replicas"],
-		"readyReplicas":     spec["replicas"],
-		"updatedReplicas":   spec["replicas"],
-	}
-
-	specBytes, err := json.Marshal(spec)
+func (g *Generator) GenerateValue(targetBytes int) ([]byte, error) {
+	result := make([]byte, targetBytes)
+	_, err := g.rg.Read(result)
 	if err != nil {
 		return nil, err
 	}
-	resource.Spec = specBytes
-
-	statusBytes, err := json.Marshal(status)
-	if err != nil {
-		return nil, err
-	}
-	resource.Status = statusBytes
-
-	return json.Marshal(resource)
-}
-
-func (g *Generator) generateLabels() map[string]string {
-	rand := g.rg
-	labels := make(map[string]string)
-	environments := []string{"dev", "staging", "prod", "test"}
-	teams := []string{"frontend", "backend", "data", "platform", "devops", "ml"}
-
-	labels["environment"] = environments[rand.Intn(len(environments))]
-	labels["team"] = teams[rand.Intn(len(teams))]
-
-	return labels
+	return result, nil
 }
 
 func (g *Generator) generateName(resourceType string) string {
@@ -165,7 +99,8 @@ func (g *Generator) GenerateData(count int) map[string][]byte {
 			continue
 		}
 
-		value, err := g.GenerateValue(resourceType, namespace, name)
+		// Generate value of 1KB
+		value, err := g.GenerateValue(1024)
 		if err != nil {
 			fmt.Printf("Error generating value for %s: %v, will try again\n", key, err)
 			// try again

@@ -11,14 +11,15 @@ import (
 func TestGenerateDataDeterminism(t *testing.T) {
 	// Test cases with different counts
 	testCases := []struct {
-		name  string
-		count int
-		seed  int64
+		name      string
+		count     int
+		seed      int64
+		valueSize int
 	}{
-		{"Small dataset", 1000, 42},
-		{"Medium dataset", 10000, 42},
-		{"Large dataset", 100000, 42},
-		{"Extra	Large dataset", 1000000, 42},
+		{"Small dataset", 1000, 42, 1024},
+		{"Medium dataset", 10000, 42, 1024},
+		{"Large dataset", 100000, 42, 1024},
+		{"Extra	Large dataset", 1000000, 42, 1024},
 	}
 
 	for _, tc := range testCases {
@@ -48,6 +49,14 @@ func TestGenerateDataDeterminism(t *testing.T) {
 			for k := range data1 {
 				if !bytes.Equal(data1[k], data2[k]) {
 					t.Errorf("Different values generated for key %s", k)
+				}
+			}
+
+			// Check if the values are the expected size
+			for k, v := range data1 {
+				if len(v) != tc.valueSize {
+					t.Errorf("Wrong size for value of key %s: got %d, want %d",
+						k, len(v), tc.valueSize)
 				}
 			}
 
