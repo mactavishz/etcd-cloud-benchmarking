@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path"
 
 	"github.com/spf13/cobra"
 )
@@ -12,6 +13,7 @@ import (
 // placed under $HOME/.benchctl/config.json
 const DEFAULT_CONFIG_DIR = ".benchctl"
 const DEFAULT_CONFIG_FILE = "config.json"
+const DEFAULT_KEY_FILE = "keys.txt"
 
 type GlobalConfig struct {
 	rg            *rand.Rand // default random generator for all the subcommands
@@ -44,7 +46,7 @@ func init_config() {
 		fmt.Println("Failed to access user's HOME directory", err)
 		os.Exit(1)
 	}
-	configDir := homedir + "/" + DEFAULT_CONFIG_DIR
+	configDir := path.Join(homedir, DEFAULT_CONFIG_DIR)
 	GConfig.ctlConfigPath = configDir
 	if _, err := os.Stat(configDir); err != nil {
 		if os.IsNotExist(err) {
@@ -61,7 +63,7 @@ func init_config() {
 }
 
 func init_config_file(dirname string) {
-	configFilePath := dirname + "/" + DEFAULT_CONFIG_FILE
+	configFilePath := path.Join(dirname, DEFAULT_CONFIG_FILE)
 
 	if _, err := os.Stat(configFilePath); err != nil {
 		if os.IsNotExist(err) {

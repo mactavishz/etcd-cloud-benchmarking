@@ -3,6 +3,7 @@ package cmd
 import (
 	"log"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,7 +90,7 @@ func load_db(count int, endpoints []string) {
 	}
 	wg.Wait()
 	log.Println("Saving keys in the config folder")
-	err = os.WriteFile(GConfig.ctlConfigPath+"/keys.txt", []byte(strings.Join(keys, "\n")), 0644)
+	err = os.WriteFile(path.Join(GConfig.ctlConfigPath, DEFAULT_KEY_FILE), []byte(strings.Join(keys, "\n")), 0644)
 	log.Println("Keys saved successfully")
 	log.Println("Data loaded successfully")
 }
