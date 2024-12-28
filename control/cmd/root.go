@@ -21,6 +21,10 @@ type GlobalConfig struct {
 	ctlConfigPath string
 }
 
+func (g *GlobalConfig) GetKeyFilePath() string {
+	return path.Join(g.ctlConfigPath, DEFAULT_KEY_FILE)
+}
+
 var GConfig *GlobalConfig = &GlobalConfig{}
 
 var rootCmd = &cobra.Command{
@@ -38,6 +42,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	init_config()
 	rootCmd.AddCommand(LoadCmd)
+	rootCmd.AddCommand(RunCmd)
 }
 
 func init_config() {
