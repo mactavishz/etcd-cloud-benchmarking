@@ -7,13 +7,17 @@ import (
 	validator "github.com/go-playground/validator/v10"
 )
 
+const DEFAULT_SEED int64 = 0x207B096061CDA310
+
 type BenchctlConfig struct {
-	Seed int64 `json:"seed" validate:"required"`
+	Seed      int64    `json:"seed" validate:"required"`
+	Endpoints []string `json:"endpoints" validate:"required"`
 }
 
 func GetDefaultConfig() *BenchctlConfig {
 	return &BenchctlConfig{
-		Seed: 0x207B096061CDA310,
+		Seed:      DEFAULT_SEED,
+		Endpoints: []string{},
 	}
 }
 

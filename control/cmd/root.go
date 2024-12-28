@@ -25,6 +25,10 @@ func (g *GlobalConfig) GetKeyFilePath() string {
 	return path.Join(g.ctlConfigPath, DEFAULT_KEY_FILE)
 }
 
+func (g *GlobalConfig) GetConfigFilePath() string {
+	return path.Join(g.ctlConfigPath, DEFAULT_CONFIG_FILE)
+}
+
 var GConfig *GlobalConfig = &GlobalConfig{}
 
 var rootCmd = &cobra.Command{

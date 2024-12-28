@@ -54,6 +54,12 @@ func load_db(count int, endpoints []string) {
 	dataGenerator := dg.NewGenerator(GConfig.rg)
 	data := dataGenerator.GenerateData(count)
 	keys := make([]string, 0, len(data))
+	GConfig.ctlConfig.Endpoints = append([]string{}, endpoints...)
+	err := GConfig.ctlConfig.WriteConfig(GConfig.GetConfigFilePath())
+
+	if err != nil {
+		log.Fatalf("Failed to write config: %v\n", err)
+	}
 
 	dbClient, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,

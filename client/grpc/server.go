@@ -2,6 +2,8 @@ package grpcserver
 
 import (
 	pb "csb/api/benchmarkpb"
+	config "csb/control/config"
+	"encoding/json"
 	"io"
 	"log"
 	"sync"
@@ -13,6 +15,7 @@ type BenchmarkServiceServer struct {
 	receivedKeys    int32
 	allKeysReceived bool
 	keysMu          sync.RWMutex
+	ctlConfig       *config.BenchctlConfig
 }
 
 func NewBenchmarkServiceServer() *BenchmarkServiceServer {
@@ -43,6 +46,23 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 				Payload: &pb.CTRLMessage_KeyBatchResponse{
 					KeyBatchResponse: &pb.KeyBatchResponse{
 						TotalKeysReceived: s.receivedKeys,
+					},
+				},
+			}
+			err = stream.Send(response)
+		case *pb.CTRLMessage_ConfigFile:
+			bytes := payload.ConfigFile.GetContent()
+			err = json.Unmarshal(bytes, &s.ctlConfig)
+			if err != nil {
+				log.Printf("Error unmarshalling config file: %v", err)
+				return err
+			}
+			configPretty, _ := json.MarshalIndent(s.ctlConfig, "", "  ")
+			log.Printf("Received config file:\n %s", string(configPretty))
+			response := &pb.CTRLMessage{
+				Payload: &pb.CTRLMessage_ConfigFileResponse{
+					ConfigFileResponse: &pb.ConfigFileResponse{
+						Success: true,
 					},
 				},
 			}

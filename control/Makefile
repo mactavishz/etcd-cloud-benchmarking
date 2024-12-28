@@ -1,7 +1,7 @@
 SRC = main.go
 BIN = benchctl
 LOAD_ARGS = load 10000
-RUN_ARGS = run
+RUN_ARGS = run localhost:50051
 
 .PHONY: all run clean
 

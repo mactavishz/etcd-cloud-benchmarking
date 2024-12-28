@@ -14,24 +14,27 @@ import (
 )
 
 var RunCmd = &cobra.Command{
-	Use:   "run [flags]",
+	Use:   "run [flags] <client_addr>",
 	Short: "Run benchmarks",
-	Long:  "Run benchmarks against the database, sends control message to benchmark client to start the benchmark",
-	// Args:  cobra.ExactArgs(1),
+	Long:  "Run benchmarks against the database, sends control message to benchmark client to start the benchmark. The <client_addr> is the ip address along with port of the benchmark client",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetPrefix("[RUN] ")
-		err := runBenchmark("localhost:50051", GConfig.GetKeyFilePath())
+		err := runBenchmark(args[0], GConfig.GetKeyFilePath())
 		if err != nil {
 			log.Fatalf("Failed to run benchmark: %v", err)
 		}
 	},
 }
 
+var keysReceived int32
+var configReceived bool
+
 func init() {
 }
 
 func runBenchmark(clientAddr string, keysFile string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Connect to each client and send keys
@@ -39,6 +42,7 @@ func runBenchmark(clientAddr string, keysFile string) error {
 	if err != nil {
 		return err
 	}
+
 	defer conn.Close()
 
 	benchmarkServiceClient, err := grpcclient.NewBenchmarkServiceClient(conn, ctx)
@@ -47,11 +51,18 @@ func runBenchmark(clientAddr string, keysFile string) error {
 	}
 
 	stream := benchmarkServiceClient.GetStream()
-	var keysReceived int32
 
+	// send loaded keys to the client
 	go func() {
 		if err := benchmarkServiceClient.SendKeys(ctx, keysFile); err != nil {
 			log.Fatalf("Failed to send keys: %v", err)
+		}
+	}()
+
+	// send config file to the client
+	go func() {
+		if err := benchmarkServiceClient.SendConfigFile(ctx, GConfig.GetConfigFilePath()); err != nil {
+			log.Fatalf("Failed to send config file: %v", err)
 		}
 	}()
 
@@ -72,6 +83,9 @@ func runBenchmark(clientAddr string, keysFile string) error {
 		case *pb.CTRLMessage_KeyBatchResponse:
 			keysReceived = payload.KeyBatchResponse.TotalKeysReceived
 			log.Printf("%d keys sent", keysReceived)
+		case *pb.CTRLMessage_ConfigFileResponse:
+			configReceived = payload.ConfigFileResponse.Success
+			log.Printf("Config file received: %v", configReceived)
 		default:
 			log.Printf("Unknown message type from server")
 		}

@@ -72,11 +72,30 @@ func (c *BenchmarkServiceClient) SendKeys(ctx context.Context, keysFile string) 
 			},
 		}
 
-		err := c.stream.Send(request)
-		if err != nil {
-			return err
-		}
+		err = c.stream.Send(request)
 	}
-	return nil
+	return err
+}
 
+func (c *BenchmarkServiceClient) SendConfigFile(ctx context.Context, configFile string) error {
+	// Open the config file
+	file, err := os.Open(configFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	// Read all config file at once
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	request := &pb.CTRLMessage{
+		Payload: &pb.CTRLMessage_ConfigFile{
+			ConfigFile: &pb.ConfigFile{
+				Content: data,
+			},
+		},
+	}
+	err = c.stream.Send(request)
+	return err
 }

@@ -14,11 +14,13 @@ import (
 	"google.golang.org/grpc"
 )
 
+const DEFAULT_PORT = 50051
+
 func main() {
-	port := flag.Int("port", 50051, "The server port")
+	port := flag.Int("p", DEFAULT_PORT, "The grpc server port")
 	flag.Parse()
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
