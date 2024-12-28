@@ -13,6 +13,8 @@ message CTRLMessage {
   oneof payload {
     KeyBatch key_batch = 1;
     KeyBatchResponse key_batch_response = 2;
+    ConfigFile config_file = 3;
+    ConfigFileResponse config_file_response = 4;
   }
 }
 
@@ -25,4 +27,12 @@ message KeyBatch {
 // KeyBatchResponse represents the response after receiving keys
 message KeyBatchResponse {
   int32 total_keys_received = 1;
+}
+
+message ConfigFile {
+  bytes content = 1;
+}
+
+message ConfigFileResponse {
+  bool success = 1;
 }
