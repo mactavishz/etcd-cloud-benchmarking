@@ -1,9 +1,11 @@
-SUBDIR_CLIENT=client
-SUBDIR_CONTROL=control
-DEFAULT_ETCD_DIR=./default.etcd
+SUBDIR_CLIENT := client
+SUBDIR_CONTROL := control
+SUBDIR_API := api
+DEFAULT_ETCD_DIR := ./default.etcd
 MODULES := ./client ./control ./data-generator
+MODULE_ROOT_NAME := csb
 
-.PHONY: client control run-client run-control clean test
+.PHONY: gen client control run-client run-control clean test
 
 all:
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CONTROL) all
@@ -15,11 +17,8 @@ client:
 control:
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CONTROL) all
 
-run-client:
-	@$(MAKE) --no-print-directory -C $(SUBDIR_CLIENT) run
-
-run-control:
-	@$(MAKE) --no-print-directory -C $(SUBDIR_CONTROL) run
+gen:
+	@$(MAKE) --no-print-directory -C $(SUBDIR_API) gen
 
 clean:
 	rm -rf $(DEFAULT_ETCD_DIR)
