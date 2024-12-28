@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package benchmarkpb;
+
+option go_package = "csb/api/benchmarkpb";
+
+// BenchmarkService defines the interface between control and client
+service BenchmarkService {
+  rpc CTRLStream(stream CTRLMessage) returns (stream CTRLMessage) {}
+}
+
+message CTRLMessage {
+  oneof payload {
+    KeyBatch key_batch = 1;
+    KeyBatchResponse key_batch_response = 2;
+  }
+}
+
+// KeyBatch represents a batch of keys being sent
+message KeyBatch {
+  repeated string keys = 1;
+  bool is_last_batch = 2;
+}
+
+// KeyBatchResponse represents the response after receiving keys
+message KeyBatchResponse {
+  int32 total_keys_received = 1;
+}
