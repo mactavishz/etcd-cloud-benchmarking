@@ -24,6 +24,10 @@ func NewBenchmarkServiceServer() *BenchmarkServiceServer {
 	}
 }
 
+func (s *BenchmarkServiceServer) IsReady() bool {
+	return s.allKeysReceived && s.ctlConfig != nil
+}
+
 func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStreamServer) error {
 	for {
 		req, err := stream.Recv()
