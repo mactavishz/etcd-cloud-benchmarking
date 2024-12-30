@@ -13,6 +13,7 @@ import (
 var DEFAULT_RESOURCE_TYPES = []string{"pods", "services", "configmaps", "secrets", "deployments"}
 var DEFAULT_NAMESPACES = []string{"default", "kube-system", "monitoring", "application"}
 var DEFAULT_RV int64 = 1
+var DEFAULT_VALUE_SIZE int = 256
 
 type Generator struct {
 	resourceTypes []string
@@ -99,8 +100,8 @@ func (g *Generator) GenerateData(count int) map[string][]byte {
 			continue
 		}
 
-		// Generate value of 1KB
-		value, err := g.GenerateValue(1024)
+		// Generate value of a given size in bytes
+		value, err := g.GenerateValue(DEFAULT_VALUE_SIZE)
 		if err != nil {
 			fmt.Printf("Error generating value for %s: %v, will try again\n", key, err)
 			// try again

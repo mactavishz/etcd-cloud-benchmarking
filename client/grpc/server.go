@@ -28,6 +28,16 @@ func (s *BenchmarkServiceServer) IsReady() bool {
 	return s.allKeysReceived && s.ctlConfig != nil
 }
 
+func (s *BenchmarkServiceServer) GetConfig() *config.BenchctlConfig {
+	return s.ctlConfig
+}
+
+func (s *BenchmarkServiceServer) GetKeys() []string {
+	s.keysMu.RLock()
+	defer s.keysMu.RUnlock()
+	return append([]string{}, s.keys...)
+}
+
 func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStreamServer) error {
 	for {
 		req, err := stream.Recv()
@@ -86,11 +96,4 @@ func (s *BenchmarkServiceServer) receiveKeys(keys []string, isLastBatch bool) {
 	s.receivedKeys += int32(len(keys))
 	s.allKeysReceived = isLastBatch
 	s.keysMu.Unlock()
-}
-
-// GetKeys returns the stored keys (for benchmark use)
-func (s *BenchmarkServiceServer) GetKeys() []string {
-	s.keysMu.RLock()
-	defer s.keysMu.RUnlock()
-	return append([]string{}, s.keys...)
 }

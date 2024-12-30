@@ -34,17 +34,22 @@ func init() {
 }
 
 func runBenchmark(clientAddr string, keysFile string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			MinConnectTimeout: 15 * time.Second,
+		}),
+	}
 
 	// Connect to each client and send keys
-	conn, err := grpc.NewClient(clientAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(clientAddr, dialOpts...)
 	if err != nil {
 		return err
 	}
 
 	defer conn.Close()
 
+	ctx := context.Background()
 	benchmarkServiceClient, err := grpcclient.NewBenchmarkServiceClient(conn, ctx)
 	if err != nil {
 		return err

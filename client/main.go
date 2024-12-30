@@ -9,6 +9,7 @@ import (
 
 	pb "csb/api/benchmarkpb"
 	grpcserver "csb/client/grpc"
+	runner "csb/client/runner"
 	"log"
 
 	"google.golang.org/grpc"
@@ -44,7 +45,60 @@ func main() {
 
 	<-readyChan
 	log.Printf("Benchmark client is ready")
+	runBenchmarkKV(benchmarkServiceServer)
 	wg.Wait()
+}
+
+func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
+	workloadType := "read-heavy"
+	config := s.GetConfig()
+	duration := time.Minute * 5
+	slaLatency := 100 * time.Millisecond
+	initialClient := 5
+	clientStep := 5
+
+	readPercent, writePercent, err := runner.GetRWPercentages(workloadType)
+
+	if err != nil {
+		log.Fatalf("Invalid workload type %s, %v", workloadType, err)
+	}
+
+	runConfig := &runner.BenchmarkRunConfig{
+		Endpoints:        config.Endpoints,
+		Seed:             config.Seed,
+		WarmupDuration:   3 * time.Minute,
+		StepDuration:     30 * time.Second,
+		TotalDuration:    duration,
+		InitialClients:   initialClient,
+		ClientStep:       clientStep,
+		ReadPercent:      readPercent,
+		WritePercent:     writePercent,
+		SLALatencyMs:     slaLatency,
+		SLAPercentile:    99.0,
+		Keys:             s.GetKeys(),
+		MetricsFile:      "metrics.csv",
+		MetricsBatchSize: 1000,
+	}
+
+	bench, err := runner.NewBenchmarkRunnerKV(runConfig)
+	if err != nil {
+		log.Fatalf("Failed to create benchmark runner: %v", err)
+	}
+	defer bench.Close()
+
+	if err := bench.Run(); err != nil {
+		log.Fatalf("Benchmark failed: %v", err)
+	}
+
+	log.Printf("Benchmark completed. Results:")
+	for _, result := range bench.GetResults() {
+		log.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+			result.NumClients,
+			result.P99Latency,
+			result.Operations,
+			result.Errors,
+		)
+	}
 }
 
 func waitForConfigAndKeys(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {
