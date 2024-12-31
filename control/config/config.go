@@ -171,7 +171,7 @@ func ReadConfig(path string) (*BenchctlConfig, error) {
 }
 
 func (cfg *BenchctlConfig) WriteConfig(path string) error {
-	data, err := json.Marshal(cfg)
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}

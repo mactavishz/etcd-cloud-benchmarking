@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// inspired by:
+// - https://gist.github.com/ulexxander/a678baa2ae3454f9516a1cd7450ed6be
+// - https://stackoverflow.com/questions/48050945/how-to-unmarshal-json-into-durations
 // Duration is a wrapper around time.Duration that implements custom JSON marshaling
 type Duration time.Duration
 
