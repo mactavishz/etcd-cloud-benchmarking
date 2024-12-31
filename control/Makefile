@@ -2,7 +2,7 @@ SRC = main.go
 BIN = benchctl
 INIT_ARGS = config init
 RESET_ARGS = config reset
-LOAD_ARGS = load 10000
+LOAD_ARGS = load
 RUN_ARGS = run localhost:50051
 
 .PHONY: all run load init reset clean

@@ -27,7 +27,7 @@ var LoadCmd = &cobra.Command{
 	Use:   "load [flags]",
 	Short: "Generate records and load them into the database to be used for benchmarking",
 	Long:  "Generate number of records specified by NumKeys in the config and load them into the database via the provided Endpoints in the config",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetPrefix("[LOAD] ")
 		if GConfig.ctlConfig == nil {
@@ -53,44 +53,97 @@ func load_db() {
 	dataGenerator := dg.NewGenerator(GConfig.rg)
 	data, err := dataGenerator.GenerateData(GConfig.ctlConfig.NumKeys, GConfig.ctlConfig.KeySize, GConfig.ctlConfig.ValueSize)
 
+	log.Println("Number of key-value paris generated: ", len(data))
+
+	if GConfig.ctlConfig.NumKeys != len(data) {
+		log.Fatalf("Failed to generate the required number of key-value pairs due to collision: %d\n", GConfig.ctlConfig.NumKeys)
+	}
+
 	if err != nil {
 		log.Fatalf("Failed to generate data: %v\n", err)
 	}
 
 	keys := make([]string, 0, len(data))
-	dbClient, err := clientv3.New(clientv3.Config{
-		Endpoints:   GConfig.ctlConfig.Endpoints,
-		DialTimeout: requestTimeout,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer dbClient.Close()
+
+	// Worker pool size
+	const workerCount = 100
+	tasks := make(chan struct {
+		key   string
+		value []byte
+	}, workerCount)
 
 	var wg sync.WaitGroup
 
+	// Start workers
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dbClient, err := clientv3.New(clientv3.Config{
+				Endpoints:   GConfig.ctlConfig.Endpoints,
+				DialTimeout: requestTimeout,
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer dbClient.Close()
+			for task := range tasks {
+				func(t struct {
+					key   string
+					value []byte
+				}) {
+					ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
+					_, err := dbClient.Put(ctx, t.key, string(t.value))
+					if err != nil {
+						switch err {
+						case context.Canceled:
+							log.Fatalf("ctx is canceled by another routine: %v\n", err)
+						case context.DeadlineExceeded:
+							log.Fatalf("ctx is attached with a deadline is exceeded: %v\n", err)
+						case rpctypes.ErrEmptyKey:
+							log.Fatalf("client-side error: %v\n", err)
+						default:
+							log.Fatalf("bad cluster endpoints, which are not etcd servers: %v\n", err)
+						}
+					}
+				}(task)
+			}
+		}()
+	}
+
+	// Send tasks to workers
 	for key, value := range data {
 		keys = append(keys, key)
-		wg.Add(1)
-		go func(key string, value []byte) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-			defer cancel()
-			_, err := dbClient.Put(ctx, key, string(value))
-			if err != nil {
-				switch err {
-				case context.Canceled:
-					log.Fatalf("ctx is canceled by another routine: %v\n", err)
-				case context.DeadlineExceeded:
-					log.Fatalf("ctx is attached with a deadline is exceeded: %v\n", err)
-				case rpctypes.ErrEmptyKey:
-					log.Fatalf("client-side error: %v\n", err)
-				default:
-					log.Fatalf("bad cluster endpoints, which are not etcd servers: %v\n", err)
-				}
-			}
-		}(key, value)
+		tasks <- struct {
+			key   string
+			value []byte
+		}{key, value}
 	}
+	close(tasks) // Close the task channel to signal workers to stop
+
+	// for key, value := range data {
+	// 	keys = append(keys, key)
+	// 	wg.Add(1)
+	// 	go func(key string, value []byte) {
+	// 		defer wg.Done()
+	// 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	// 		defer cancel()
+	// 		_, err := dbClient.Put(ctx, key, string(value))
+	// 		if err != nil {
+	// 			switch err {
+	// 			case context.Canceled:
+	// 				log.Fatalf("ctx is canceled by another routine: %v\n", err)
+	// 			case context.DeadlineExceeded:
+	// 				log.Fatalf("ctx is attached with a deadline is exceeded: %v\n", err)
+	// 			case rpctypes.ErrEmptyKey:
+	// 				log.Fatalf("client-side error: %v\n", err)
+	// 			default:
+	// 				log.Fatalf("bad cluster endpoints, which are not etcd servers: %v\n", err)
+	// 			}
+	// 		}
+	// 	}(key, value)
+	// }
 	wg.Wait()
 	log.Println("Saving keys in the config folder")
 	err = os.WriteFile(path.Join(GConfig.ctlConfigPath, constants.DEFAULT_KEY_FILE), []byte(strings.Join(keys, "\n")), 0644)
