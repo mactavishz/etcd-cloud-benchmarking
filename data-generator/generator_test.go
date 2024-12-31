@@ -19,10 +19,10 @@ func TestGenerateDataDeterminism(t *testing.T) {
 		keySize   int
 		valueSize int
 	}{
-		{"Small dataset", 1000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
-		{"Medium dataset", 10000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
-		{"Large dataset", 100000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
-		{"Extra	Large dataset", 1000000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Small dataset", 1000, defaultCfg.Seed, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Medium dataset", 10000, defaultCfg.Seed, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Large dataset", 100000, defaultCfg.Seed, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Extra	Large dataset", 1000000, defaultCfg.Seed, defaultCfg.KeySize, defaultCfg.ValueSize},
 	}
 
 	for _, tc := range testCases {
