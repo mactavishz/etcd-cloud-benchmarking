@@ -1,8 +1,9 @@
 package cmd
 
 import (
+	benchCfg "csb/control/config"
 	config "csb/control/config"
-	"csb/control/constants"
+	constants "csb/control/constants"
 	"fmt"
 	"math/rand"
 	"os"
@@ -37,20 +38,24 @@ var rootCmd = &cobra.Command{
 	Long:  "A CLI tool for managing benchmarking tasks including preparing, running, monitoring, and collecting results",
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			cmd.Help()
+			err := cmd.Help()
+			if err != nil {
+				os.Exit(1)
+			}
 			os.Exit(0)
 		}
 	},
 }
 
 func init() {
-	init_config()
+	initConfigPath()
+	loadConfig()
 	rootCmd.AddCommand(LoadCmd)
 	rootCmd.AddCommand(RunCmd)
 	rootCmd.AddCommand(ConfigCmd)
 }
 
-func init_config() {
+func initConfigPath() {
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Println("Failed to access user's HOME directory", err)
@@ -58,46 +63,25 @@ func init_config() {
 	}
 	configDir := path.Join(homedir, constants.DEFAULT_CONFIG_DIR)
 	GConfig.ctlConfigPath = configDir
-	if _, err := os.Stat(configDir); err != nil {
-		if os.IsNotExist(err) {
-			if err = os.MkdirAll(configDir, 0755); err != nil {
-				fmt.Println("Failed to create config directory: ", err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Println("Failed to check config directory: ", err)
-			os.Exit(1)
-		}
-	}
-	init_config_file(configDir)
 }
 
-func init_config_file(dirname string) {
-	configFilePath := path.Join(dirname, constants.DEFAULT_CONFIG_FILE)
-
+func loadConfig() {
+	configFilePath := path.Join(GConfig.ctlConfigPath, constants.DEFAULT_CONFIG_FILE)
 	if _, err := os.Stat(configFilePath); err != nil {
 		if os.IsNotExist(err) {
-			defaultConfig := config.GetDefaultConfig()
-			GConfig.rg = rand.New(rand.NewSource(defaultConfig.Seed))
-			GConfig.ctlConfig = defaultConfig
-			err = defaultConfig.WriteConfig(configFilePath)
-			if err != nil {
-				fmt.Println("Failed to write default config file: ", err)
-				os.Exit(1)
-			}
+			return
 		} else {
-			fmt.Println("Failed to check config file: ", err)
-			os.Exit(1)
+			fmt.Println("Failed to check config directory: ", err)
 		}
-	} else {
-		localConfig, err := config.ReadConfig(configFilePath)
-		if err != nil {
-			fmt.Println("Failed to read config file: ", err)
-			os.Exit(1)
-		}
-		GConfig.rg = rand.New(rand.NewSource(localConfig.Seed))
-		GConfig.ctlConfig = localConfig
 	}
+	localConfig, err := benchCfg.ReadConfig(configFilePath)
+	if err != nil {
+		fmt.Println("Failed to read config file: ", err)
+		return
+	}
+
+	GConfig.UpdateRg(localConfig.Seed)
+	GConfig.ctlConfig = localConfig
 }
 
 func Execute() error {

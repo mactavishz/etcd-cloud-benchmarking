@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -29,6 +30,10 @@ var LoadCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetPrefix("[LOAD] ")
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		count := GConfig.ctlConfig.NumKeys
 		endpoints := GConfig.ctlConfig.Endpoints
 		if len(endpoints) == 0 {

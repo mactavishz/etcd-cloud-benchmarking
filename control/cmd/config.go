@@ -3,12 +3,15 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
 	"reflect"
 	"strings"
 	"time"
 	"unicode"
 
 	benchCfg "csb/control/config"
+	constants "csb/control/constants"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +28,10 @@ var configSetCmd = &cobra.Command{
 	Long:  "Set the value of a specific configuration field (e.g., config set seed=12345)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		parts := strings.Split(args[0], "=")
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid format. Use: field=value")
@@ -115,6 +122,10 @@ var configGetCmd = &cobra.Command{
 	Long:  "Get the current value of a specific configuration field",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		field := args[0]
 
 		field = toCamelCase(field)
@@ -150,6 +161,11 @@ var configLoadFileCmd = &cobra.Command{
 		GConfig.ctlConfig = newConfig
 		GConfig.UpdateRg(newConfig.Seed)
 
+		err = initConfigDir()
+		if err != nil {
+			return err
+		}
+
 		// Save the new configuration
 		return GConfig.ctlConfig.WriteConfig(GConfig.GetConfigFilePath())
 	},
@@ -161,6 +177,10 @@ var configViewCmd = &cobra.Command{
 	Long:  "View the current configuration in JSON format",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		data, err := json.MarshalIndent(GConfig.ctlConfig, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal config: %w", err)
@@ -176,6 +196,10 @@ var configListCmd = &cobra.Command{
 	Long:  "List all available configuration fields with their types and current values",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		configVal := reflect.ValueOf(GConfig.ctlConfig).Elem()
 		configType := configVal.Type()
 
@@ -279,10 +303,70 @@ func toCamelCase(s string) string {
 	return result.String()
 }
 
+var configInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize default configuration",
+	Long:  "Initialize the configuration with default values and save it in JSON format in the config directory",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := initConfigDir()
+		if err != nil {
+			return err
+		}
+		return initConfigFile()
+	},
+}
+
+var configResetCmd = &cobra.Command{
+	Use:   "reset",
+	Short: "Reset to default configuration",
+	Long:  "Reset the configuration with default values and save it in JSON format in the config directory",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := initConfigDir()
+		if err != nil {
+			return err
+		}
+		return initConfigFile()
+	},
+}
+
 func init() {
+	ConfigCmd.AddCommand(configInitCmd)
+	ConfigCmd.AddCommand(configResetCmd)
 	ConfigCmd.AddCommand(configSetCmd)
 	ConfigCmd.AddCommand(configGetCmd)
 	ConfigCmd.AddCommand(configLoadFileCmd)
 	ConfigCmd.AddCommand(configViewCmd)
 	ConfigCmd.AddCommand(configListCmd)
+}
+
+func initConfigDir() error {
+	if _, err := os.Stat(GConfig.ctlConfigPath); err != nil {
+		if os.IsNotExist(err) {
+			if err = os.MkdirAll(GConfig.ctlConfigPath, 0755); err != nil {
+				fmt.Println("Failed to create config directory: ", err)
+				return err
+			}
+		} else {
+			fmt.Println("Failed to check config directory: ", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func initConfigFile() error {
+	configFilePath := path.Join(GConfig.ctlConfigPath, constants.DEFAULT_CONFIG_FILE)
+	defaultConfig := benchCfg.GetDefaultConfig()
+
+	GConfig.UpdateRg(defaultConfig.Seed)
+	GConfig.ctlConfig = defaultConfig
+	err := defaultConfig.WriteConfig(configFilePath)
+	if err != nil {
+		fmt.Println("Failed to write default config file: ", err)
+		return err
+	}
+	fmt.Println("Default configuration initialized and saved in ", configFilePath)
+	return nil
 }

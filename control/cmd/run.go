@@ -4,8 +4,10 @@ import (
 	"context"
 	pb "csb/api/benchmarkpb"
 	grpcclient "csb/control/grpc"
+	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -20,6 +22,10 @@ var RunCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetPrefix("[RUN] ")
+		if GConfig.ctlConfig == nil {
+			fmt.Println("Config not found, please run 'benchctl config init' first")
+			os.Exit(1)
+		}
 		err := runBenchmark(args[0], GConfig.GetKeyFilePath())
 		if err != nil {
 			log.Fatalf("Failed to run benchmark: %v", err)
