@@ -1,6 +1,7 @@
 package runner
 
 import (
+	benchCfg "csb/control/config"
 	generator "csb/data-generator"
 	"errors"
 	"math/rand"
@@ -12,31 +13,16 @@ import (
 
 // BenchmarkRunConfig holds all configuration parameters
 type BenchmarkRunConfig struct {
-	// Test duration parameters
-	WarmupDuration time.Duration
-	StepDuration   time.Duration
-	TotalDuration  time.Duration
-	InitialClients int
-	ClientStep     int
-	MaxClients     int
+	benchCfg.BenchctlConfig
 
-	// Workload type parameters
+	// Workload parameters
 	ReadPercent  int
 	WritePercent int
 
-	// SLA parameters
-	SLALatencyMs  time.Duration
-	SLAPercentile float64
-
-	Endpoints []string
-
-	// Key space parameters
+	// Keys to operate on
 	Keys []string
 
-	Seed int64
-
 	// Metrics parameters
-	MetricsFile      string
 	MetricsBatchSize int
 }
 

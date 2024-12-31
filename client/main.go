@@ -10,15 +10,14 @@ import (
 	pb "csb/api/benchmarkpb"
 	grpcserver "csb/client/grpc"
 	runner "csb/client/runner"
+	constants "csb/control/constants"
 	"log"
 
 	"google.golang.org/grpc"
 )
 
-const DEFAULT_PORT = 50051
-
 func main() {
-	port := flag.Int("p", DEFAULT_PORT, "The grpc server port")
+	port := flag.Int("p", constants.DEFAULT_GRPC_SERVER_PORT, "The grpc server port")
 	flag.Parse()
 
 	wg := &sync.WaitGroup{}
@@ -50,34 +49,20 @@ func main() {
 }
 
 func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
-	workloadType := "read-heavy"
 	config := s.GetConfig()
-	duration := time.Minute * 5
-	slaLatency := 100 * time.Millisecond
-	initialClient := 5
-	clientStep := 5
 
-	readPercent, writePercent, err := runner.GetRWPercentages(workloadType)
+	readPercent, writePercent, err := runner.GetRWPercentages(config.WorkloadType)
 
 	if err != nil {
-		log.Fatalf("Invalid workload type %s, %v", workloadType, err)
+		log.Fatalf("Invalid workload type %s, %v", config.WorkloadType, err)
 	}
 
 	runConfig := &runner.BenchmarkRunConfig{
-		Endpoints:        config.Endpoints,
-		Seed:             config.Seed,
-		WarmupDuration:   3 * time.Minute,
-		StepDuration:     30 * time.Second,
-		TotalDuration:    duration,
-		InitialClients:   initialClient,
-		ClientStep:       clientStep,
+		BenchctlConfig:   *config,
 		ReadPercent:      readPercent,
 		WritePercent:     writePercent,
-		SLALatencyMs:     slaLatency,
-		SLAPercentile:    99.0,
 		Keys:             s.GetKeys(),
-		MetricsFile:      "metrics.csv",
-		MetricsBatchSize: 1000,
+		MetricsBatchSize: constants.DEFAULT_METRICS_BATCH_SIZE,
 	}
 
 	bench, err := runner.NewBenchmarkRunnerKV(runConfig)

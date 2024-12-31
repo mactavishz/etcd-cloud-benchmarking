@@ -4,11 +4,11 @@ import (
 	"log"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 
 	"context"
+	constants "csb/control/constants"
 	dg "csb/data-generator"
 	"time"
 
@@ -17,52 +17,44 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-var endpoints []string
-var count int
-
 const (
 	dialTimeout    = 5 * time.Second
 	requestTimeout = 10 * time.Second
 )
 
 var LoadCmd = &cobra.Command{
-	Use:   "load [flags] <count>",
+	Use:   "load [flags]",
 	Short: "Generate records and load them into the database to be used for benchmarking",
-	Long:  "Generate number of records specified by <count> and load them into the database via the provided endpoints",
+	Long:  "Generate number of records specified by NumKeys in the config and load them into the database via the provided Endpoints in the config",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetPrefix("[LOAD] ")
-		var err error
+		count := GConfig.ctlConfig.NumKeys
+		endpoints := GConfig.ctlConfig.Endpoints
 		if len(endpoints) == 0 {
 			log.Fatalln("Please provide at least one endpoint")
 		} else {
-			count, err = strconv.Atoi(args[0])
-			if err != nil {
-				log.Fatalf("Invalid count: %s\n", args[0])
-			}
 			log.Printf("Loading %d records into the database via the following endpoints: %v\n", count, endpoints)
-			load_db(count, endpoints)
+			load_db()
 		}
 	},
 }
 
 func init() {
-	LoadCmd.Flags().StringSliceVar(&endpoints, "endpoints", []string{"127.0.0.1:2379"}, "List of endpoints of the database to load data into")
+	// LoadCmd.Flags().StringSliceVar(&endpoints, "endpoints", []string{"127.0.0.1:2379"}, "List of endpoints of the database to load data into")
 }
 
-func load_db(count int, endpoints []string) {
+func load_db() {
 	dataGenerator := dg.NewGenerator(GConfig.rg)
-	data := dataGenerator.GenerateData(count)
-	keys := make([]string, 0, len(data))
-	GConfig.ctlConfig.Endpoints = append([]string{}, endpoints...)
-	err := GConfig.ctlConfig.WriteConfig(GConfig.GetConfigFilePath())
+	data, err := dataGenerator.GenerateData(GConfig.ctlConfig.NumKeys, GConfig.ctlConfig.KeySize, GConfig.ctlConfig.ValueSize)
 
 	if err != nil {
-		log.Fatalf("Failed to write config: %v\n", err)
+		log.Fatalf("Failed to generate data: %v\n", err)
 	}
 
+	keys := make([]string, 0, len(data))
 	dbClient, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
+		Endpoints:   GConfig.ctlConfig.Endpoints,
 		DialTimeout: requestTimeout,
 	})
 	if err != nil {
@@ -96,7 +88,7 @@ func load_db(count int, endpoints []string) {
 	}
 	wg.Wait()
 	log.Println("Saving keys in the config folder")
-	err = os.WriteFile(path.Join(GConfig.ctlConfigPath, DEFAULT_KEY_FILE), []byte(strings.Join(keys, "\n")), 0644)
+	err = os.WriteFile(path.Join(GConfig.ctlConfigPath, constants.DEFAULT_KEY_FILE), []byte(strings.Join(keys, "\n")), 0644)
 	if err != err {
 		log.Fatalf("Error saving keys: %v\n", err)
 	}

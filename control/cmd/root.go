@@ -2,6 +2,7 @@ package cmd
 
 import (
 	config "csb/control/config"
+	"csb/control/constants"
 	"fmt"
 	"math/rand"
 	"os"
@@ -10,23 +11,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// placed under $HOME/.benchctl/config.json
-const DEFAULT_CONFIG_DIR = ".benchctl"
-const DEFAULT_CONFIG_FILE = "config.json"
-const DEFAULT_KEY_FILE = "keys.txt"
-
 type GlobalConfig struct {
 	rg            *rand.Rand // default random generator for all the subcommands
 	ctlConfig     *config.BenchctlConfig
 	ctlConfigPath string
 }
 
+func (g *GlobalConfig) UpdateRg(newSeed int64) {
+	g.rg = rand.New(rand.NewSource(newSeed))
+}
+
 func (g *GlobalConfig) GetKeyFilePath() string {
-	return path.Join(g.ctlConfigPath, DEFAULT_KEY_FILE)
+	return path.Join(g.ctlConfigPath, constants.DEFAULT_KEY_FILE)
 }
 
 func (g *GlobalConfig) GetConfigFilePath() string {
-	return path.Join(g.ctlConfigPath, DEFAULT_CONFIG_FILE)
+	return path.Join(g.ctlConfigPath, constants.DEFAULT_CONFIG_FILE)
 }
 
 var GConfig *GlobalConfig = &GlobalConfig{}
@@ -47,6 +47,7 @@ func init() {
 	init_config()
 	rootCmd.AddCommand(LoadCmd)
 	rootCmd.AddCommand(RunCmd)
+	rootCmd.AddCommand(ConfigCmd)
 }
 
 func init_config() {
@@ -55,7 +56,7 @@ func init_config() {
 		fmt.Println("Failed to access user's HOME directory", err)
 		os.Exit(1)
 	}
-	configDir := path.Join(homedir, DEFAULT_CONFIG_DIR)
+	configDir := path.Join(homedir, constants.DEFAULT_CONFIG_DIR)
 	GConfig.ctlConfigPath = configDir
 	if _, err := os.Stat(configDir); err != nil {
 		if os.IsNotExist(err) {
@@ -72,7 +73,7 @@ func init_config() {
 }
 
 func init_config_file(dirname string) {
-	configFilePath := path.Join(dirname, DEFAULT_CONFIG_FILE)
+	configFilePath := path.Join(dirname, constants.DEFAULT_CONFIG_FILE)
 
 	if _, err := os.Stat(configFilePath); err != nil {
 		if os.IsNotExist(err) {

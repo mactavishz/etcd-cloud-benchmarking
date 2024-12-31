@@ -2,6 +2,7 @@ package generator
 
 import (
 	"bytes"
+	config "csb/control/config"
 	"math/rand"
 	"reflect"
 	"sort"
@@ -10,16 +11,18 @@ import (
 
 func TestGenerateDataDeterminism(t *testing.T) {
 	// Test cases with different counts
+	defaultCfg := config.GetDefaultConfig()
 	testCases := []struct {
 		name      string
 		count     int
 		seed      int64
+		keySize   int
 		valueSize int
 	}{
-		{"Small dataset", 1000, 42, 1024},
-		{"Medium dataset", 10000, 42, 1024},
-		{"Large dataset", 100000, 42, 1024},
-		{"Extra	Large dataset", 1000000, 42, 1024},
+		{"Small dataset", 1000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Medium dataset", 10000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Large dataset", 100000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
+		{"Extra	Large dataset", 1000000, 42, defaultCfg.KeySize, defaultCfg.ValueSize},
 	}
 
 	for _, tc := range testCases {
@@ -27,12 +30,12 @@ func TestGenerateDataDeterminism(t *testing.T) {
 			// First execution
 			rg1 := rand.New(rand.NewSource(tc.seed))
 			gen1 := NewGenerator(rg1)
-			data1 := gen1.GenerateData(tc.count)
+			data1, _ := gen1.GenerateData(tc.count, tc.keySize, tc.valueSize)
 
 			// Second execution
 			rg2 := rand.New(rand.NewSource(tc.seed))
 			gen2 := NewGenerator(rg2)
-			data2 := gen2.GenerateData(tc.count)
+			data2, _ := gen2.GenerateData(tc.count, tc.keySize, tc.valueSize)
 
 			// Check if both executions generated the same number of items
 			if len(data1) != len(data2) {

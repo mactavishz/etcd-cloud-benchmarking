@@ -87,7 +87,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 	}
 
 	var wg sync.WaitGroup
-	latencyChan := make(chan time.Duration, numClients*int(r.config.StepDuration.Seconds()))
+	latencyChan := make(chan time.Duration, numClients*int(time.Duration(r.config.StepDuration).Seconds()))
 
 	// Start a separate goroutine to collect latencies
 	go func() {
@@ -114,7 +114,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 					isRead := rand.Float64()*100 < float64(r.config.ReadPercent)
 					// Select random key from available keys
 					key := r.config.Keys[rand.Intn(len(r.config.Keys))]
-					newVal, _ := r.generator.GenerateValue(generator.DEFAULT_VALUE_SIZE)
+					newVal, _ := r.generator.GenerateValue(r.config.ValueSize)
 
 					var err error
 					operation := "read"
@@ -216,7 +216,7 @@ func (r *BenchmarkRunnerKV) Run() error {
 	for remainingTime > 0 {
 		log.Printf("Starting step with %d clients", curNumClients)
 
-		stepCtx, stepCancel := context.WithTimeout(context.Background(), r.config.StepDuration)
+		stepCtx, stepCancel := context.WithTimeout(context.Background(), time.Duration(r.config.StepDuration))
 		result, err := r.runLoadStep(stepCtx, curNumClients)
 		defer stepCancel()
 
@@ -229,7 +229,7 @@ func (r *BenchmarkRunnerKV) Run() error {
 		r.mut.Unlock()
 
 		// Check if SLA is violated
-		if !saturated && result.P99Latency > r.config.SLALatencyMs {
+		if !saturated && result.P99Latency > time.Duration(r.config.SLALatency) {
 			log.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)", curNumClients, result.P99Latency.Milliseconds())
 			saturated = true
 		}
@@ -237,8 +237,8 @@ func (r *BenchmarkRunnerKV) Run() error {
 		log.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
 
 		if !saturated {
-			curNumClients += r.config.ClientStep
-			err = r.addClients(r.config.ClientStep)
+			curNumClients += r.config.ClientStepSize
+			err = r.addClients(r.config.ClientStepSize)
 			if err != nil {
 				return err
 			}
