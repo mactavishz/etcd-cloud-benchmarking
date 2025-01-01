@@ -75,7 +75,7 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 		log.Fatalf("Benchmark failed: %v", err)
 	}
 
-	log.Printf("Benchmark completed. Results:")
+	log.Printf("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
 		log.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
 			result.NumClients,

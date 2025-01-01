@@ -204,13 +204,14 @@ func (r *BenchmarkRunnerKV) calculateP99Latency(result *StepResult) {
 
 func (r *BenchmarkRunnerKV) Run() error {
 	// Warm-up period
-	// log.Printf("Starting warm-up period (%v)...", r.config.WarmupDuration)
-	// warmupCtx, warmupCancel := context.WithTimeout(context.Background(), r.config.WarmupDuration)
-	// _, err := r.runLoadStep(warmupCtx, r.config.InitialClients)
-	// warmupCancel()
-	// if err != nil {
-	// 	return fmt.Errorf("warm-up failed: %v", err)
-	// }
+	log.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
+	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), time.Duration(r.config.WarmupDuration))
+	defer warmupCancel()
+	warmupResult, err := r.runLoadStep(warmupCtx, r.config.InitialClients)
+	if err != nil {
+		return fmt.Errorf("warm-up failed: %v", err)
+	}
+	log.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
 
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
