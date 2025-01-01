@@ -75,6 +75,12 @@ func NewGenerator(rg *rand.Rand) *Generator {
 	}
 }
 
+func (g *Generator) NewRand(seed int64, id int) *rand.Rand {
+	// Create unique but deterministic seed for each goroutine
+	uniqueSeed := seed + int64(id)
+	return rand.New(rand.NewSource(uniqueSeed))
+}
+
 // generateUniquePadding creates a unique padding for a given prefix
 func (g *Generator) generateUniquePadding(paddingSize int, prefix string) string {
 	const charPool = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -144,9 +150,12 @@ func (g *Generator) GenerateKey(targetSize int) (string, error) {
 }
 
 // GenerateValue creates a synthetic value for the resource
-func (g *Generator) GenerateValue(targetBytes int) ([]byte, error) {
+func (g *Generator) GenerateValue(targetBytes int, rg *rand.Rand) ([]byte, error) {
+	if rg == nil {
+		rg = g.rg
+	}
 	result := make([]byte, targetBytes)
-	_, err := g.rg.Read(result)
+	_, err := rg.Read(result)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +183,7 @@ func (g *Generator) GenerateData(count int, keySize int, valueSize int) (map[str
 		}
 
 		// Generate value of a given size in bytes
-		value, err := g.GenerateValue(valueSize)
+		value, err := g.GenerateValue(valueSize, nil)
 		if err != nil {
 			return nil, err
 		}

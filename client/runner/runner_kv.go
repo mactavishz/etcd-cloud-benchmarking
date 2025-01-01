@@ -79,7 +79,6 @@ func (r *BenchmarkRunnerKV) addClients(numNewClients int) error {
 }
 
 func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*StepResult, error) {
-	rand := r.rand
 	result := &StepResult{
 		NumClients: numClients,
 		StartTime:  time.Now(),
@@ -102,6 +101,8 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 		go func(clientID int) {
 			defer wg.Done()
 
+			// per goroutine random generator
+			rg := r.generator.NewRand(r.config.Seed, clientID)
 			// Get the assigned client from the pool
 			client := r.clients[clientID%len(r.clients)]
 
@@ -111,10 +112,13 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 					return
 				default:
 					// Determine operation type based on workload distribution
-					isRead := rand.Float64()*100 < float64(r.config.ReadPercent)
+					isRead := rg.Float64()*100 < float64(r.config.ReadPercent)
 					// Select random key from available keys
-					key := r.config.Keys[rand.Intn(len(r.config.Keys))]
-					newVal, _ := r.generator.GenerateValue(r.config.ValueSize)
+					key := r.config.Keys[rg.Intn(len(r.config.Keys))]
+					newVal, _ := r.generator.GenerateValue(r.config.ValueSize, rg)
+					requestTimeout := time.Duration(r.config.MaxWaitTime)
+					timeoutCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+					defer cancel()
 
 					var err error
 					operation := "read"
@@ -123,10 +127,10 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 
 					start := time.Now()
 					if isRead {
-						_, err = client.Get(ctx, key)
+						_, err = client.Get(timeoutCtx, key)
 					} else {
 						operation = "write"
-						_, err = client.Put(ctx, key, string(newVal))
+						_, err = client.Put(timeoutCtx, key, string(newVal))
 					}
 					latency := time.Since(start)
 					latencyChan <- latency
