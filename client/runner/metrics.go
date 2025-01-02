@@ -10,6 +10,7 @@ import (
 
 // StepResult holds metrics for each load step
 type RequestMetric struct {
+	Timestamp  time.Time     // Timestamp of the request
 	Key        string        // Key being accessed
 	Operation  string        // "read" or "write"
 	Latency    time.Duration // Latency in milliseconds
@@ -37,6 +38,7 @@ func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error
 	// Write CSV header
 	writer := csv.NewWriter(file)
 	err = writer.Write([]string{
+		"unix_timestamp",
 		"key",
 		"operation",
 		"latency_ms",
@@ -75,6 +77,7 @@ func (e *MetricsExporter) flush() error {
 	writer := csv.NewWriter(e.file)
 	for _, metric := range e.metrics {
 		err := writer.Write([]string{
+			strconv.FormatInt(metric.Timestamp.UnixNano(), 10),
 			metric.Key,
 			metric.Operation,
 			strconv.FormatInt(metric.Latency.Milliseconds(), 10),

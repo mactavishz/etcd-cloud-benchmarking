@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 )
 
 const (
@@ -82,6 +83,7 @@ func load_db() {
 			dbClient, err := clientv3.New(clientv3.Config{
 				Endpoints:   GConfig.ctlConfig.Endpoints,
 				DialTimeout: requestTimeout,
+				Logger:      zap.NewNop(),
 			})
 			if err != nil {
 				log.Fatal(err)
@@ -122,28 +124,6 @@ func load_db() {
 	}
 	close(tasks) // Close the task channel to signal workers to stop
 
-	// for key, value := range data {
-	// 	keys = append(keys, key)
-	// 	wg.Add(1)
-	// 	go func(key string, value []byte) {
-	// 		defer wg.Done()
-	// 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	// 		defer cancel()
-	// 		_, err := dbClient.Put(ctx, key, string(value))
-	// 		if err != nil {
-	// 			switch err {
-	// 			case context.Canceled:
-	// 				log.Fatalf("ctx is canceled by another routine: %v\n", err)
-	// 			case context.DeadlineExceeded:
-	// 				log.Fatalf("ctx is attached with a deadline is exceeded: %v\n", err)
-	// 			case rpctypes.ErrEmptyKey:
-	// 				log.Fatalf("client-side error: %v\n", err)
-	// 			default:
-	// 				log.Fatalf("bad cluster endpoints, which are not etcd servers: %v\n", err)
-	// 			}
-	// 		}
-	// 	}(key, value)
-	// }
 	wg.Wait()
 	log.Println("Saving keys in the config folder")
 	err = os.WriteFile(path.Join(GConfig.ctlConfigPath, constants.DEFAULT_KEY_FILE), []byte(strings.Join(keys, "\n")), 0644)
