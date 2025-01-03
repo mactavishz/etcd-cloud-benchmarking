@@ -28,6 +28,7 @@ type BenchctlConfig struct {
 	MaxClients     int      `json:"max_clients" validate:"required,gt=0"`
 	MaxWaitTime    Duration `json:"max_wait_time" validate:"required"`
 	WorkloadType   string   `json:"workload_type" validate:"required,valid_workload_type"`
+	Scenario       string   `json:"scenario" validate:"required,valid_scenario"`
 	// SLA parameters
 	SLALatency    Duration `json:"sla_latency" validate:"required"`
 	SLAPercentile float64  `json:"sla_percentile" validate:"required,gt=0"`
@@ -38,9 +39,9 @@ type BenchctlConfig struct {
 // Custom validation tags
 const (
 	workloadTypeTag = "valid_workload_type"
-	// durationTag     = "valid_duration"
-	endpointTag = "valid_endpoint"
-	keySizeTag  = "valid_key_size"
+	endpointTag     = "valid_endpoint"
+	keySizeTag      = "valid_key_size"
+	scenarioTag     = "valid_scenario"
 )
 
 // RegisterCustomValidators registers all custom validators for BenchctlConfig
@@ -51,9 +52,9 @@ func RegisterCustomValidators(v *validator.Validate) error {
 	}
 
 	// Register duration format validator
-	// if err := v.RegisterValidation(durationTag, validateDuration); err != nil {
-	// 	return fmt.Errorf("failed to register duration validator: %w", err)
-	// }
+	if err := v.RegisterValidation(scenarioTag, validateScenarioType); err != nil {
+		return fmt.Errorf("failed to register scenario validator: %w", err)
+	}
 
 	// Register endpoint validator
 	if err := v.RegisterValidation(endpointTag, validateEndpoint); err != nil {
@@ -84,12 +85,14 @@ func validateWorkloadType(fl validator.FieldLevel) bool {
 	return validTypes[workloadType]
 }
 
-// validateDuration ensures the duration string can be parsed by time.ParseDuration
-// func validateDuration(fl validator.FieldLevel) bool {
-// 	durationStr := fl.Field().String()
-// 	_, err := time.ParseDuration(durationStr)
-// 	return err == nil
-// }
+func validateScenarioType(fl validator.FieldLevel) bool {
+	scenarioType := fl.Field().String()
+	validTypes := map[string]bool{
+		"kv-store":     true,
+		"lock-service": true,
+	}
+	return validTypes[scenarioType]
+}
 
 // validateEndpoint ensures the endpoint string is in the correct format
 func validateEndpoint(fl validator.FieldLevel) bool {
@@ -137,7 +140,8 @@ func GetDefaultConfig() *BenchctlConfig {
 		ClientStepSize: 5,
 		MaxClients:     100,
 		MaxWaitTime:    Duration(500 * time.Millisecond),
-		WorkloadType:   "read-heavy",
+		WorkloadType:   constants.WORKLOAD_TYPE_READ_HEAVY,
+		Scenario:       constants.SCENARIO_KV_STORE,
 		SLALatency:     Duration(100 * time.Millisecond),
 		SLAPercentile:  0.99,
 		MetricsFile:    "metrics.csv",

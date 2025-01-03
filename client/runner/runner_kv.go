@@ -35,14 +35,14 @@ func NewBenchmarkRunnerKV(config *BenchmarkRunConfig) (*BenchmarkRunnerKV, error
 			for j := 0; j < i; j++ {
 				clients[j].Close()
 			}
-			return nil, fmt.Errorf("failed to create etcd client %d: %v", i, err)
+			return nil, fmt.Errorf("failed to create etcd client %d: %w", i, err)
 		}
 		clients[i] = cli
 	}
 	rg := rand.New(rand.NewSource(config.Seed))
 	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create metrics exporter: %v", err)
+		return nil, fmt.Errorf("failed to create metrics exporter: %w", err)
 	}
 	return &BenchmarkRunnerKV{
 		config:          config,
@@ -58,7 +58,7 @@ func (r *BenchmarkRunnerKV) Close() error {
 	var lastErr error
 	for i, cli := range r.clients {
 		if err := cli.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close client %d: %v", i, err)
+			lastErr = fmt.Errorf("failed to close client %d: %w", i, err)
 		}
 	}
 	return lastErr
@@ -76,14 +76,18 @@ func (r *BenchmarkRunnerKV) addClients(numNewClients int) error {
 			Logger:      zap.NewNop(),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to create new client: %v", err)
+			return fmt.Errorf("failed to create new client: %w", err)
 		}
 		r.clients = append(r.clients, cli)
 	}
 	return nil
 }
 
-func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*StepResult, error) {
+func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int, isWarmup bool) (*StepResult, error) {
+	runPhase := "main"
+	if isWarmup {
+		runPhase = "warmup"
+	}
 	result := &StepResult{
 		NumClients: numClients,
 		StartTime:  time.Now(),
@@ -187,6 +191,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int) (*S
 							StatusText: statusText,
 							NumClients: numClients,
 							ClientID:   clientID,
+							RunPhase:   runPhase,
 						}
 
 						// Add metric to exporter
@@ -233,26 +238,31 @@ func (r *BenchmarkRunnerKV) Run() error {
 	log.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
 	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), time.Duration(r.config.WarmupDuration))
 	defer warmupCancel()
-	warmupResult, err := r.runLoadStep(warmupCtx, r.config.InitialClients)
+	warmupResult, err := r.runLoadStep(warmupCtx, r.config.InitialClients, true)
 	if err != nil {
-		return fmt.Errorf("warm-up failed: %v", err)
+		return fmt.Errorf("warm-up failed: %w", err)
 	}
 	log.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
 
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
-	remainingTime := r.config.TotalDuration
+	remainingTime := time.Duration(r.config.TotalDuration)
 	saturated := false
 
 	for remainingTime > 0 {
 		log.Printf("Starting step with %d clients", curNumClients)
-
-		stepCtx, stepCancel := context.WithTimeout(context.Background(), time.Duration(r.config.StepDuration))
-		result, err := r.runLoadStep(stepCtx, curNumClients)
+		var acutalDuration time.Duration
+		if remainingTime < time.Duration(r.config.StepDuration) {
+			acutalDuration = remainingTime
+		} else {
+			acutalDuration = time.Duration(r.config.StepDuration)
+		}
+		stepCtx, stepCancel := context.WithTimeout(context.Background(), acutalDuration)
+		result, err := r.runLoadStep(stepCtx, curNumClients, false)
 		defer stepCancel()
 
 		if err != nil {
-			return fmt.Errorf("step failed with %d clients: %v", curNumClients, err)
+			return fmt.Errorf("step failed with %d clients: %w", curNumClients, err)
 		}
 
 		r.mut.Lock()
@@ -274,7 +284,7 @@ func (r *BenchmarkRunnerKV) Run() error {
 				return err
 			}
 		}
-		remainingTime -= r.config.StepDuration
+		remainingTime -= time.Duration(r.config.StepDuration)
 	}
 
 	if r.metricsExporter != nil {

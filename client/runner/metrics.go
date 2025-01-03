@@ -19,6 +19,7 @@ type RequestMetric struct {
 	StatusText string        // etcd response status text
 	NumClients int           // Number of clients at current step
 	ClientID   int           // ID of the client that made the request
+	RunPhase   string        // Phase of the run
 }
 
 // MetricsExporter handles the export of raw metrics to CSV
@@ -38,7 +39,7 @@ func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error
 	// Write CSV header
 	writer := csv.NewWriter(file)
 	err = writer.Write([]string{
-		"unix_timestamp",
+		"unix_timestamp_nano",
 		"key",
 		"operation",
 		"latency_ms",
@@ -47,6 +48,7 @@ func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error
 		"status_text",
 		"num_clients",
 		"client_id",
+		"run_phase",
 	})
 	if err != nil {
 		file.Close()
@@ -86,6 +88,7 @@ func (e *MetricsExporter) flush() error {
 			metric.StatusText,
 			strconv.Itoa(metric.NumClients),
 			strconv.Itoa(metric.ClientID),
+			metric.RunPhase,
 		})
 		if err != nil {
 			return err

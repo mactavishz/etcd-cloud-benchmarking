@@ -2,6 +2,7 @@ package runner
 
 import (
 	benchCfg "csb/control/config"
+	"csb/control/constants"
 	generator "csb/data-generator"
 	"errors"
 	"math/rand"
@@ -26,24 +27,15 @@ type BenchmarkRunConfig struct {
 	MetricsBatchSize int
 }
 
-// WorkloadType represents predefined workload distributions
-type WorkloadType string
-
-const (
-	ReadHeavy   WorkloadType = "read-heavy"   // 95% reads, 5% writes
-	UpdateHeavy WorkloadType = "update-heavy" // 50% reads, 50% writes
-	ReadOnly    WorkloadType = "read-only"    // 100% reads
-)
-
 func GetRWPercentages(w string) (int, int, error) {
-	// Configure workload distribution
+	//workload read, write distribution
 	var readPercent, writePercent int
-	switch WorkloadType(w) {
-	case ReadHeavy:
+	switch w {
+	case constants.WORKLOAD_TYPE_READ_HEAVY:
 		readPercent, writePercent = 95, 5
-	case UpdateHeavy:
+	case constants.WORKLOAD_TYPE_UPDATE_HEAVY:
 		readPercent, writePercent = 50, 50
-	case ReadOnly:
+	case constants.WORKLOAD_TYPE_READ_ONLY:
 		readPercent, writePercent = 100, 0
 	default:
 		return 0, 0, errors.New("unknown workload type")
