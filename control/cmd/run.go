@@ -8,10 +8,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -28,18 +31,17 @@ var RunCmd = &cobra.Command{
 		}
 		err := runBenchmark(args[0], GConfig.GetKeyFilePath())
 		if err != nil {
-			log.Fatalf("Failed to run benchmark: %v", err)
+			log.Fatalf("Error from the benchmark run: %v", err)
 		}
+		log.Println("Benchmark terminated")
 	},
 }
 
-var keysReceived int32
-var configReceived bool
-
-func init() {
-}
-
 func runBenchmark(clientAddr string, keysFile string) error {
+	termChan := make(chan struct{})
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(grpc.ConnectParams{
@@ -63,42 +65,81 @@ func runBenchmark(clientAddr string, keysFile string) error {
 
 	stream := benchmarkServiceClient.GetStream()
 
+	// wait for connection to be ready
+	log.Println("Waiting for connection to be ready")
+	for {
+		if conn.GetState() != connectivity.Ready {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			log.Println("Connection is ready")
+			break
+		}
+	}
+
 	// send loaded keys to the client
 	go func() {
 		if err := benchmarkServiceClient.SendKeys(ctx, keysFile); err != nil {
-			log.Fatalf("Failed to send keys: %v", err)
+			log.Printf("Failed to send keys: %v", err)
+			terminate(stream, termChan)
 		}
 	}()
 
 	// send config file to the client
 	go func() {
 		if err := benchmarkServiceClient.SendConfigFile(ctx, GConfig.GetConfigFilePath()); err != nil {
-			log.Fatalf("Failed to send config file: %v", err)
+			log.Printf("Failed to send config file: %v", err)
+			terminate(stream, termChan)
 		}
 	}()
 
 	for {
-		res, err := stream.Recv()
-
-		if err == io.EOF {
-			// End of stream
-			return nil
-		}
-
-		if err != nil {
-			log.Fatalf("Error receiving from server: %v", err)
-		}
-
-		// Handle server responses
-		switch payload := res.Payload.(type) {
-		case *pb.CTRLMessage_KeyBatchResponse:
-			keysReceived = payload.KeyBatchResponse.TotalKeysReceived
-			log.Printf("%d keys sent", keysReceived)
-		case *pb.CTRLMessage_ConfigFileResponse:
-			configReceived = payload.ConfigFileResponse.Success
-			log.Printf("Config file received: %v", configReceived)
+		var err error
+		select {
+		case <-sigChan:
+			terminate(stream, termChan)
+		case <-termChan:
+			return err
 		default:
-			log.Printf("Unknown message type from server")
+			res, err := stream.Recv()
+
+			if err == io.EOF {
+				// End of stream
+				log.Println("GRPC stream closed by server")
+				close(termChan)
+				return nil
+			}
+
+			if err != nil {
+				log.Printf("Error receiving from server: %v", err)
+				close(termChan)
+				return err
+			}
+
+			// Handle server responses
+			switch payload := res.Payload.(type) {
+			case *pb.CTRLMessage_KeyBatchResponse:
+				keysReceived := payload.KeyBatchResponse.TotalKeysReceived
+				log.Printf("%d keys sent", keysReceived)
+			case *pb.CTRLMessage_ConfigFileResponse:
+				configReceived := payload.ConfigFileResponse.Success
+				log.Printf("Config file sent: %v", configReceived)
+			case *pb.CTRLMessage_BenchmarkFinished:
+				log.Println("Benchmark run finished")
+				terminate(stream, termChan)
+			default:
+				log.Printf("Unknown message type from server")
+			}
 		}
 	}
+}
+
+func terminate(stream pb.BenchmarkService_CTRLStreamClient, termChan chan struct{}) {
+	log.Println("Terminating benchmark")
+	err := stream.Send(&pb.CTRLMessage{
+		Payload: &pb.CTRLMessage_Shutdown{},
+	})
+	if err != nil {
+		log.Printf("Failed to send shutdown message: %v", err)
+	}
+	close(termChan)
 }

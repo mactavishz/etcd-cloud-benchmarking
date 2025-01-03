@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"sync"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	pb "csb/api/benchmarkpb"
@@ -17,11 +19,14 @@ import (
 )
 
 func main() {
-	port := flag.Int("p", constants.DEFAULT_GRPC_SERVER_PORT, "The grpc server port")
+	port := flag.Int("p", constants.DEFAULT_GRPC_SERVER_PORT, "The GRPC server port")
 	flag.Parse()
 
-	wg := &sync.WaitGroup{}
+	// wg := &sync.WaitGroup{}
 	readyChan := make(chan struct{})
+	sigChan := make(chan os.Signal, 1)
+	termChan := make(chan struct{})
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
@@ -29,23 +34,47 @@ func main() {
 	}
 
 	gServer := grpc.NewServer()
-	benchmarkServiceServer := grpcserver.NewBenchmarkServiceServer()
+	benchmarkServiceServer := grpcserver.NewBenchmarkServiceServer(gServer, termChan)
 	pb.RegisterBenchmarkServiceServer(gServer, benchmarkServiceServer)
-	go waitForConfigAndKeys(benchmarkServiceServer, readyChan)
+	go waitUntilReady(benchmarkServiceServer, readyChan)
 
-	log.Printf("Benchmark client starting on port %d", *port)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		log.Printf("Benchmark client's GRPC Server starting on port %d", *port)
 		if err := gServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
 		}
+		log.Println("GRPC Server stopped")
 	}()
 
-	<-readyChan
-	log.Printf("Benchmark client is ready")
-	runBenchmarkKV(benchmarkServiceServer)
-	wg.Wait()
+	go func() {
+		<-readyChan
+		benchCfg := benchmarkServiceServer.GetConfig()
+		if benchCfg.Scenario == constants.SCENARIO_KV_STORE {
+			runBenchmarkKV(benchmarkServiceServer)
+		} else {
+			runBenchmarkLockService(benchmarkServiceServer)
+		}
+		err = benchmarkServiceServer.SendCTRLMessage(&pb.CTRLMessage{
+			Payload: &pb.CTRLMessage_BenchmarkFinished{},
+		})
+		if err != nil {
+			log.Printf("Failed to send benchmark finished message: %v", err)
+		}
+	}()
+
+	for {
+		select {
+		case <-sigChan:
+			fmt.Println()
+			log.Println("Manually shutting down server ...")
+			gServer.Stop()
+			return
+		case <-termChan:
+			log.Println("Gracefully shutting down server ...")
+			gServer.GracefulStop()
+			return
+		}
+	}
 }
 
 func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
@@ -86,13 +115,18 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 	}
 }
 
-func waitForConfigAndKeys(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {
+func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
+}
+
+func waitUntilReady(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {
+	log.Println("Waiting for config and keys to start running benchmarks ...")
 	// Wait for config and keys
 	for {
 		if s.IsReady() {
+			log.Println("Ready to run benchmarks")
 			break
 		} else {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 	close(readyChan)

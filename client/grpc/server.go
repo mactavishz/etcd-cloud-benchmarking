@@ -4,9 +4,12 @@ import (
 	pb "csb/api/benchmarkpb"
 	config "csb/control/config"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"sync"
+
+	"google.golang.org/grpc"
 )
 
 type BenchmarkServiceServer struct {
@@ -16,11 +19,17 @@ type BenchmarkServiceServer struct {
 	allKeysReceived bool
 	keysMu          sync.RWMutex
 	ctlConfig       *config.BenchctlConfig
+	grpcServer      *grpc.Server
+	termChan        chan struct{}
+	currStream      pb.BenchmarkService_CTRLStreamServer
+	streamMu        sync.Mutex
 }
 
-func NewBenchmarkServiceServer() *BenchmarkServiceServer {
+func NewBenchmarkServiceServer(grpcserver *grpc.Server, termChan chan struct{}) *BenchmarkServiceServer {
 	return &BenchmarkServiceServer{
-		keys: make([]string, 0),
+		keys:       make([]string, 0),
+		grpcServer: grpcserver,
+		termChan:   termChan,
 	}
 }
 
@@ -38,55 +47,86 @@ func (s *BenchmarkServiceServer) GetKeys() []string {
 	return append([]string{}, s.keys...)
 }
 
+func (s *BenchmarkServiceServer) SendCTRLMessage(msg *pb.CTRLMessage) error {
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	if s.currStream == nil {
+		return errors.New("no active stream")
+	}
+	return s.currStream.Send(msg)
+}
+
 func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStreamServer) error {
+	// Store stream for server-initiated messages
+	s.streamMu.Lock()
+	s.currStream = stream
+	s.streamMu.Unlock()
+
+	// Clean up stream when done
+	defer func() {
+		s.streamMu.Lock()
+		s.currStream = nil
+		s.streamMu.Unlock()
+	}()
+
 	for {
-		req, err := stream.Recv()
-
-		if err == io.EOF {
-			// client closes the stream
+		select {
+		case <-s.termChan:
 			return nil
-		}
+		default:
 
-		if err != nil {
-			log.Printf("Error receiving grpc message from client: %v", err)
-			return err
-		}
+			req, err := stream.Recv()
 
-		switch payload := req.Payload.(type) {
-		case *pb.CTRLMessage_KeyBatch:
-			s.receiveKeys(payload.KeyBatch.GetKeys(), payload.KeyBatch.GetIsLastBatch())
-			log.Printf("Received batch of %d keys. Total keys: %d", len(payload.KeyBatch.Keys), s.receivedKeys)
-			response := &pb.CTRLMessage{
-				Payload: &pb.CTRLMessage_KeyBatchResponse{
-					KeyBatchResponse: &pb.KeyBatchResponse{
-						TotalKeysReceived: s.receivedKeys,
-					},
-				},
+			if err == io.EOF {
+				// client closes the stream
+				return nil
 			}
-			err = stream.Send(response)
-		case *pb.CTRLMessage_ConfigFile:
-			bytes := payload.ConfigFile.GetContent()
-			err = json.Unmarshal(bytes, &s.ctlConfig)
+
 			if err != nil {
-				log.Printf("Error unmarshalling config file: %v", err)
+				log.Printf("Error receiving grpc message from client: %v", err)
 				return err
 			}
-			configPretty, _ := json.MarshalIndent(s.ctlConfig, "", "  ")
-			log.Printf("Received config file:\n %s", string(configPretty))
-			response := &pb.CTRLMessage{
-				Payload: &pb.CTRLMessage_ConfigFileResponse{
-					ConfigFileResponse: &pb.ConfigFileResponse{
-						Success: true,
+
+			switch payload := req.Payload.(type) {
+			case *pb.CTRLMessage_KeyBatch:
+				s.receiveKeys(payload.KeyBatch.GetKeys(), payload.KeyBatch.GetIsLastBatch())
+				log.Printf("Received batch of %d keys. Total keys: %d", len(payload.KeyBatch.Keys), s.receivedKeys)
+				response := &pb.CTRLMessage{
+					Payload: &pb.CTRLMessage_KeyBatchResponse{
+						KeyBatchResponse: &pb.KeyBatchResponse{
+							TotalKeysReceived: s.receivedKeys,
+						},
 					},
-				},
+				}
+				err = stream.Send(response)
+			case *pb.CTRLMessage_ConfigFile:
+				bytes := payload.ConfigFile.GetContent()
+				err = json.Unmarshal(bytes, &s.ctlConfig)
+				if err != nil {
+					log.Printf("Error unmarshalling config file: %v", err)
+					return err
+				}
+				configPretty, _ := json.MarshalIndent(s.ctlConfig, "", "  ")
+				log.Printf("Received config file:\n %s", string(configPretty))
+				response := &pb.CTRLMessage{
+					Payload: &pb.CTRLMessage_ConfigFileResponse{
+						ConfigFileResponse: &pb.ConfigFileResponse{
+							Success: true,
+						},
+					},
+				}
+				err = stream.Send(response)
+			case *pb.CTRLMessage_Shutdown:
+				log.Printf("Received shutdown message from client")
+				close(s.termChan)
 			}
-			err = stream.Send(response)
+
+			if err != nil {
+				log.Printf("Error sending grpc message to client: %v", err)
+				return err
+			}
 		}
 
-		if err != nil {
-			log.Printf("Error sending grpc message to client: %v", err)
-			return err
-		}
 	}
 }
 
