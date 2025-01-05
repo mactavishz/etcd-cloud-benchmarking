@@ -50,8 +50,10 @@ func main() {
 		<-readyChan
 		benchCfg := benchmarkServiceServer.GetConfig()
 		if benchCfg.Scenario == constants.SCENARIO_KV_STORE {
+			log.Println("Running KV store benchmark ...")
 			runBenchmarkKV(benchmarkServiceServer)
 		} else {
+			log.Println("Running Lock service benchmark ...")
 			runBenchmarkLockService(benchmarkServiceServer)
 		}
 		err = benchmarkServiceServer.SendCTRLMessage(&pb.CTRLMessage{
@@ -116,6 +118,33 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 }
 
 func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
+	config := s.GetConfig()
+
+	runConfig := &runner.BenchmarkRunConfig{
+		BenchctlConfig:   *config,
+		Keys:             s.GetKeys(),
+		MetricsBatchSize: constants.DEFAULT_METRICS_BATCH_SIZE,
+	}
+
+	bench, err := runner.NewBenchmarkRunnerLock(runConfig)
+	if err != nil {
+		log.Fatalf("Failed to create benchmark runner: %v", err)
+	}
+	defer bench.Close()
+
+	if err := bench.Run(); err != nil {
+		log.Fatalf("Benchmark failed: %v", err)
+	}
+
+	log.Printf("Benchmark completed. Overall results:")
+	for _, result := range bench.GetResults() {
+		log.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+			result.NumClients,
+			result.P99Latency,
+			result.Operations,
+			result.Errors,
+		)
+	}
 }
 
 func waitUntilReady(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {

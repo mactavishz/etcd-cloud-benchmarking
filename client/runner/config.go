@@ -10,6 +10,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 // BenchmarkRunConfig holds all configuration parameters
@@ -62,4 +63,20 @@ type BenchmarkRunnerKV struct {
 	mut             sync.Mutex
 	rand            *rand.Rand
 	generator       *generator.Generator
+}
+
+// BenchmarkRunnerLock manages the lock service benchmark
+type BenchmarkRunnerLock struct {
+	config          *BenchmarkRunConfig
+	clients         []*clientv3.Client
+	sessions        []*concurrency.Session
+	results         []*StepResult
+	metricsExporter *MetricsExporter
+	mut             sync.Mutex
+	rand            *rand.Rand
+	generator       *generator.Generator
+
+	// Lock-specific configurations
+	lockNames       []string // List of available lock names
+	contentionLevel int      // Number of clients competing for same lock
 }

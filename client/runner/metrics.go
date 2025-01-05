@@ -25,10 +25,12 @@ type RequestMetric struct {
 // LockMetric extends RequestMetric for lock-specific operations
 type LockMetric struct {
 	RequestMetric
-	LockName        string        // Name of the lock being operated on
-	AquireLatency   time.Duration // Latency of the acquire operation
-	ReleaseLatency  time.Duration // Latency of the release operation
-	ContentionLevel int           // Number of clients contending for the lock
+	LockName         string        // Name of the lock being operated on
+	AquireLatency    time.Duration // Latency of the acquire operation
+	ReleaseLatency   time.Duration // Latency of the release operation
+	LockOpStatusCode int           // etcd response status code for lock operation
+	LockOpStatusText string        // etcd response status text for lock operation
+	ContentionLevel  int           // Number of clients contending for the lock
 }
 
 type Metric interface {
@@ -75,11 +77,27 @@ func (m RequestMetric) ToCSVHeader() []string {
 }
 
 func (m LockMetric) ToCSVHeader() []string {
-	return append(m.RequestMetric.ToCSVHeader(), "lock_name", "aquire_latency_ms", "release_latency_ms", "contention_level")
+	return append(
+		m.RequestMetric.ToCSVHeader(),
+		"lock_name",
+		"aquire_latency_ms",
+		"release_latency_ms",
+		"lock_op_status_code",
+		"lock_op_status_text",
+		"contention_level",
+	)
 }
 
 func (m LockMetric) ToCSVRow() []string {
-	return append(m.RequestMetric.ToCSVRow(), m.LockName, strconv.FormatInt(m.AquireLatency.Milliseconds(), 10), strconv.FormatInt(m.ReleaseLatency.Milliseconds(), 10), strconv.Itoa(m.ContentionLevel))
+	return append(
+		m.RequestMetric.ToCSVRow(),
+		m.LockName,
+		strconv.FormatInt(m.AquireLatency.Milliseconds(), 10),
+		strconv.FormatInt(m.ReleaseLatency.Milliseconds(), 10),
+		strconv.Itoa(m.LockOpStatusCode),
+		m.LockOpStatusText,
+		strconv.Itoa(m.ContentionLevel),
+	)
 }
 
 func NewMetricsExporter(filename string, batchSize int, header []string) (*MetricsExporter, error) {
