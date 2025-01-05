@@ -61,9 +61,13 @@ func RegisterCustomValidators(v *validator.Validate) error {
 		return fmt.Errorf("failed to register endpoint validator: %w", err)
 	}
 
+	// Register key size validator
 	if err := v.RegisterValidation(keySizeTag, validateKeySize); err != nil {
 		return fmt.Errorf("failed to register key size validator: %w", err)
 	}
+
+	// Register scenario and workload type validator
+	v.RegisterStructValidation(validateScenarioAndWorkloadType, BenchctlConfig{})
 
 	return nil
 }
@@ -77,9 +81,12 @@ func validateKeySize(fl validator.FieldLevel) bool {
 func validateWorkloadType(fl validator.FieldLevel) bool {
 	workloadType := fl.Field().String()
 	validTypes := map[string]bool{
-		"read-heavy":   true,
-		"update-heavy": true,
-		"read-only":    true,
+		constants.WORKLOAD_TYPE_READ_HEAVY:      true,
+		constants.WORKLOAD_TYPE_UPDATE_HEAVY:    true,
+		constants.WORKLOAD_TYPE_READ_ONLY:       true,
+		constants.WORKLOAD_TYPE_LOCK_ONLY:       true,
+		constants.WORKLOAD_TYPE_LOCK_MIXED:      true,
+		constants.WORKLOAD_TYPE_LOCK_CONTENTION: true,
 	}
 
 	return validTypes[workloadType]
@@ -88,8 +95,8 @@ func validateWorkloadType(fl validator.FieldLevel) bool {
 func validateScenarioType(fl validator.FieldLevel) bool {
 	scenarioType := fl.Field().String()
 	validTypes := map[string]bool{
-		"kv-store":     true,
-		"lock-service": true,
+		constants.SCENARIO_KV_STORE:     true,
+		constants.SCENARIO_LOCK_SERVICE: true,
 	}
 	return validTypes[scenarioType]
 }
@@ -124,6 +131,35 @@ func validateEndpoint(fl validator.FieldLevel) bool {
 	}
 
 	return true
+}
+
+func validateScenarioAndWorkloadType(sl validator.StructLevel) {
+	cfg := sl.Current().Interface().(BenchctlConfig)
+
+	// Define valid workload types for each scenario
+	validWorkloads := map[string]map[string]bool{
+		constants.SCENARIO_KV_STORE: {
+			constants.WORKLOAD_TYPE_READ_HEAVY:   true,
+			constants.WORKLOAD_TYPE_UPDATE_HEAVY: true,
+			constants.WORKLOAD_TYPE_READ_ONLY:    true,
+		},
+		constants.SCENARIO_LOCK_SERVICE: {
+			constants.WORKLOAD_TYPE_LOCK_ONLY:       true,
+			constants.WORKLOAD_TYPE_LOCK_MIXED:      true,
+			constants.WORKLOAD_TYPE_LOCK_CONTENTION: true,
+		},
+	}
+
+	// Check if scenario exists in the validWorkloads map
+	if workloads, ok := validWorkloads[cfg.Scenario]; ok {
+		// Validate workload type for the given scenario
+		if !workloads[cfg.WorkloadType] {
+			sl.ReportError(cfg.WorkloadType, "workload_type", "WorkloadType", "validScenarioWorkload", cfg.Scenario)
+		}
+	} else {
+		// Invalid scenario
+		sl.ReportError(cfg.Scenario, "scenario", "Scenario", "validScenario", "")
+	}
 }
 
 func GetDefaultConfig() *BenchctlConfig {

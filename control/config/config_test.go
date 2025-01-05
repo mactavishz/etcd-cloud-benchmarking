@@ -95,6 +95,28 @@ func TestValidateConfig(t *testing.T) {
 			isErr: true,
 		},
 		{
+			name: "mismatched workload type and scenario kv-store",
+			config: func() *BenchctlConfig {
+				cfg := GetDefaultConfig()
+				cfg.Endpoints = []string{"192.168.1.1:8080"}
+				cfg.Scenario = constants.SCENARIO_KV_STORE
+				cfg.WorkloadType = "lock-only" // invalid: doesn't match scenario
+				return cfg
+			}(),
+			isErr: true,
+		},
+		{
+			name: "mismatched workload type and scenario lock-service",
+			config: func() *BenchctlConfig {
+				cfg := GetDefaultConfig()
+				cfg.Endpoints = []string{"192.168.1.1:8080"}
+				cfg.Scenario = constants.SCENARIO_LOCK_SERVICE
+				cfg.WorkloadType = "read-only" // invalid: doesn't match scenario
+				return cfg
+			}(),
+			isErr: true,
+		},
+		{
 			name: "invalid key size",
 			config: func() *BenchctlConfig {
 				cfg := GetDefaultConfig()
