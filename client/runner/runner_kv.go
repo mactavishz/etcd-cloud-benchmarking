@@ -40,7 +40,7 @@ func NewBenchmarkRunnerKV(config *BenchmarkRunConfig) (*BenchmarkRunnerKV, error
 		clients[i] = cli
 	}
 	rg := rand.New(rand.NewSource(config.Seed))
-	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize)
+	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize, RequestMetric{}.ToCSVHeader())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics exporter: %w", err)
 	}

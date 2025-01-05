@@ -22,23 +22,45 @@ type RequestMetric struct {
 	RunPhase   string        // Phase of the run
 }
 
+// LockMetric extends RequestMetric for lock-specific operations
+type LockMetric struct {
+	RequestMetric
+	LockName        string        // Name of the lock being operated on
+	AquireLatency   time.Duration // Latency of the acquire operation
+	ReleaseLatency  time.Duration // Latency of the release operation
+	ContentionLevel int           // Number of clients contending for the lock
+}
+
+type Metric interface {
+	ToCSVRow() []string // Converts the metric to a slice of strings for CSV writing
+	ToCSVHeader() []string
+}
+
 // MetricsExporter handles the export of raw metrics to CSV
 type MetricsExporter struct {
 	file      *os.File
 	batchSize int
-	metrics   []RequestMetric
+	metrics   []Metric
 	mu        sync.Mutex
 }
 
-func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error) {
-	file, err := os.Create(filename)
-	if err != nil {
-		return nil, err
+func (m RequestMetric) ToCSVRow() []string {
+	return []string{
+		strconv.FormatInt(m.Timestamp.UnixNano(), 10),
+		m.Key,
+		m.Operation,
+		strconv.FormatInt(m.Latency.Milliseconds(), 10),
+		strconv.FormatBool(m.Success),
+		strconv.Itoa(m.StatusCode),
+		m.StatusText,
+		strconv.Itoa(m.NumClients),
+		strconv.Itoa(m.ClientID),
+		m.RunPhase,
 	}
+}
 
-	// Write CSV header
-	writer := csv.NewWriter(file)
-	err = writer.Write([]string{
+func (m RequestMetric) ToCSVHeader() []string {
+	return []string{
 		"unix_timestamp_nano",
 		"key",
 		"operation",
@@ -49,7 +71,26 @@ func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error
 		"num_clients",
 		"client_id",
 		"run_phase",
-	})
+	}
+}
+
+func (m LockMetric) ToCSVHeader() []string {
+	return append(m.RequestMetric.ToCSVHeader(), "lock_name", "aquire_latency_ms", "release_latency_ms", "contention_level")
+}
+
+func (m LockMetric) ToCSVRow() []string {
+	return append(m.RequestMetric.ToCSVRow(), m.LockName, strconv.FormatInt(m.AquireLatency.Milliseconds(), 10), strconv.FormatInt(m.ReleaseLatency.Milliseconds(), 10), strconv.Itoa(m.ContentionLevel))
+}
+
+func NewMetricsExporter(filename string, batchSize int, header []string) (*MetricsExporter, error) {
+	file, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write CSV header
+	writer := csv.NewWriter(file)
+	err = writer.Write(header)
 	if err != nil {
 		file.Close()
 		return nil, err
@@ -59,11 +100,11 @@ func NewMetricsExporter(filename string, batchSize int) (*MetricsExporter, error
 	return &MetricsExporter{
 		file:      file,
 		batchSize: batchSize,
-		metrics:   make([]RequestMetric, 0, batchSize),
+		metrics:   make([]Metric, 0, batchSize),
 	}, nil
 }
 
-func (e *MetricsExporter) AddMetric(metric RequestMetric) error {
+func (e *MetricsExporter) AddMetric(metric Metric) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -78,18 +119,7 @@ func (e *MetricsExporter) AddMetric(metric RequestMetric) error {
 func (e *MetricsExporter) flush() error {
 	writer := csv.NewWriter(e.file)
 	for _, metric := range e.metrics {
-		err := writer.Write([]string{
-			strconv.FormatInt(metric.Timestamp.UnixNano(), 10),
-			metric.Key,
-			metric.Operation,
-			strconv.FormatInt(metric.Latency.Milliseconds(), 10),
-			strconv.FormatBool(metric.Success),
-			strconv.Itoa(metric.StatusCode),
-			metric.StatusText,
-			strconv.Itoa(metric.NumClients),
-			strconv.Itoa(metric.ClientID),
-			metric.RunPhase,
-		})
+		err := writer.Write(metric.ToCSVRow())
 		if err != nil {
 			return err
 		}
