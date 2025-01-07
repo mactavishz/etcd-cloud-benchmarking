@@ -261,11 +261,17 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 	}
 
 	go func() {
+		var operationStr []string
+		if isRead {
+			operationStr = []string{string(OpLockAcquire), string(OpKVRead), string(OpLockRelease)}
+		} else {
+			operationStr = []string{string(OpLockAcquire), string(OpKVWrite), string(OpLockRelease)}
+		}
 		// Record metrics for all operations
 		metric := LockMetric{
 			RequestMetric: RequestMetric{
 				Timestamp:  time.Now(),
-				Operation:  strings.Join([]string{string(OpLockAcquire), string(OpKVWrite), string(OpLockRelease)}, "+"),
+				Operation:  strings.Join(operationStr, "+"),
 				Latency:    acquireLatency + kvLatency + releaseLatency,
 				Success:    success,
 				RunPhase:   runPhase,
