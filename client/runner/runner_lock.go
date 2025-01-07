@@ -210,6 +210,7 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 		statusCode, lockOpStatusCode              int
 		statusText                                string = "N/A"
 		lockOpStatusText                          string = "N/A"
+		isRead                                    bool   = r.config.WorkloadType == constants.WORKLOAD_TYPE_LOCK_MIXED_READ
 	)
 
 	tryLockCtx, tryLockCtxCancel := GetTimeoutCtx(time.Duration(r.config.MaxWaitTime))
@@ -227,7 +228,11 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 		kvCtx, kvCtxCancel := GetTimeoutCtx(time.Duration(r.config.MaxWaitTime))
 		defer kvCtxCancel()
 		kvStart := time.Now()
-		_, err = client.Put(kvCtx, key, string(newVal))
+		if isRead {
+			_, err = client.Get(kvCtx, key)
+		} else {
+			_, err = client.Put(kvCtx, key, string(newVal))
+		}
 		kvLatency = time.Since(kvStart)
 		if err != nil {
 			statusCode, statusText = GetErrInfo(err)
@@ -341,7 +346,7 @@ func (r *BenchmarkRunnerLock) runLoadStep(ctx context.Context, numClients int, i
 					switch r.config.WorkloadType {
 					case constants.WORKLOAD_TYPE_LOCK_ONLY:
 						err = r.runLockOnlyWorkload(mutex, clientID, runPhase, latencyChan)
-					case constants.WORKLOAD_TYPE_LOCK_MIXED:
+					case constants.WORKLOAD_TYPE_LOCK_MIXED_READ, constants.WORKLOAD_TYPE_LOCK_MIXED_WRITE:
 						err = r.runLockMixedWorkload(mutex, rg, key, clientID, runPhase, latencyChan)
 					case constants.WORKLOAD_TYPE_LOCK_CONTENTION:
 						err = r.runLockOnlyWorkload(mutex, clientID, runPhase, latencyChan)
