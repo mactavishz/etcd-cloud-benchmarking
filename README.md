@@ -1,7 +1,6 @@
 # CSB Project WS2425
 
-This repository contains the code for the benchmark implementaion, benchmark raw data, 
-analysis scripts, generated figures etc.
+This repository contains the code for the benchmark implementaion, benchmark raw data, analysis scripts, generated figures etc.
 
 ## Getting started
 
