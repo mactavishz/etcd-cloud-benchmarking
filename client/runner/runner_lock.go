@@ -400,7 +400,7 @@ func (r *BenchmarkRunnerLock) Run() error {
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
 	remainingTime := time.Duration(r.config.TotalDuration)
-	saturated := false
+	maxClientsReached := false
 
 	for remainingTime > 0 {
 		log.Printf("Starting step with %d clients", curNumClients)
@@ -423,17 +423,20 @@ func (r *BenchmarkRunnerLock) Run() error {
 		r.results = append(r.results, result)
 		r.mut.Unlock()
 
-		if !saturated && result.P99Latency > time.Duration(r.config.SLALatency) {
-			r.logger.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)",
-				curNumClients, result.P99Latency.Milliseconds())
-			saturated = true
-		}
-
 		r.logger.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
 
-		if !saturated {
-			curNumClients += r.config.ClientStepSize
-			if err = r.addClients(r.config.ClientStepSize); err != nil {
+		if curNumClients >= r.config.MaxClients {
+			if !maxClientsReached {
+				maxClientsReached = true
+				r.logger.Printf("Reached maximum number of clients")
+			}
+		} else {
+			acutalIncClients := r.config.ClientStepSize
+			if curNumClients+r.config.ClientStepSize > r.config.MaxClients {
+				acutalIncClients = r.config.MaxClients - curNumClients
+			}
+			curNumClients += acutalIncClients
+			if err = r.addClients(acutalIncClients); err != nil {
 				return err
 			}
 		}

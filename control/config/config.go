@@ -30,8 +30,8 @@ type BenchctlConfig struct {
 	WorkloadType   string   `json:"workload_type" validate:"required,valid_workload_type"`
 	Scenario       string   `json:"scenario" validate:"required,valid_scenario"`
 	// SLA parameters
-	SLALatency    Duration `json:"sla_latency" validate:"required"`
-	SLAPercentile float64  `json:"sla_percentile" validate:"required,gt=0"`
+	// SLALatency    Duration `json:"sla_latency"`
+	// SLAPercentile float64  `json:"sla_percentile"`
 	// Metrics parameters
 	MetricsFile string `json:"metrics_file" validate:"required,filepath"`
 }
@@ -177,9 +177,9 @@ func GetDefaultConfig() *BenchctlConfig {
 		MaxWaitTime:    Duration(500 * time.Millisecond),
 		WorkloadType:   constants.WORKLOAD_TYPE_READ_HEAVY,
 		Scenario:       constants.SCENARIO_KV_STORE,
-		SLALatency:     Duration(100 * time.Millisecond),
-		SLAPercentile:  0.99,
-		MetricsFile:    "metrics.csv",
+		// SLALatency:     Duration(100 * time.Millisecond),
+		// SLAPercentile:  0.99,
+		MetricsFile: "metrics.csv",
 	}
 }
 

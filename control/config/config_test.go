@@ -41,8 +41,6 @@ func TestValidateConfig(t *testing.T) {
 				MaxWaitTime:    Duration(1 * time.Second),
 				WorkloadType:   constants.WORKLOAD_TYPE_READ_HEAVY,
 				Scenario:       constants.SCENARIO_KV_STORE,
-				SLALatency:     Duration(200 * time.Millisecond),
-				SLAPercentile:  0.95,
 				MetricsFile:    "test_metrics.csv",
 			},
 			isErr: false,
