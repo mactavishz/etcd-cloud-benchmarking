@@ -25,7 +25,8 @@ const (
 	WORKLOAD_TYPE_LOCK_CONTENTION  = "lock-contention"  // all clients contending for a  set of locks
 
 	// grpc
-	DEFAULT_GRPC_SERVER_PORT = 50051
+	DEFAULT_GRPC_SERVER_PORT   = 50051
+	DEFAULT_BENCH_RUN_LOG_FILE = "run.log"
 
 	// metrics
 	DEFAULT_METRICS_BATCH_SIZE = 1000

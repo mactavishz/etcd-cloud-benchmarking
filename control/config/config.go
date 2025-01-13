@@ -127,11 +127,8 @@ func validateEndpoint(fl validator.FieldLevel) bool {
 
 	// Validate IP address
 	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
+	return ip != nil
 
-	return true
 }
 
 func validateScenarioAndWorkloadType(sl validator.StructLevel) {

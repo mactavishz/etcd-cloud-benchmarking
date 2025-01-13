@@ -24,7 +24,7 @@ type RequestMetric struct {
 
 // LockMetric extends RequestMetric for lock-specific operations
 type LockMetric struct {
-	RequestMetric
+	*RequestMetric
 	LockName         string        // Name of the lock being operated on
 	AquireLatency    time.Duration // Latency of the acquire operation
 	ReleaseLatency   time.Duration // Latency of the release operation
@@ -46,7 +46,7 @@ type MetricsExporter struct {
 	mu        sync.Mutex
 }
 
-func (m RequestMetric) ToCSVRow() []string {
+func (m *RequestMetric) ToCSVRow() []string {
 	return []string{
 		strconv.FormatInt(m.Timestamp.UnixNano(), 10),
 		m.Key,
@@ -61,7 +61,7 @@ func (m RequestMetric) ToCSVRow() []string {
 	}
 }
 
-func (m RequestMetric) ToCSVHeader() []string {
+func (m *RequestMetric) ToCSVHeader() []string {
 	return []string{
 		"unix_timestamp_nano",
 		"key",
@@ -76,7 +76,7 @@ func (m RequestMetric) ToCSVHeader() []string {
 	}
 }
 
-func (m LockMetric) ToCSVHeader() []string {
+func (m *LockMetric) ToCSVHeader() []string {
 	return append(
 		m.RequestMetric.ToCSVHeader(),
 		"lock_name",
@@ -88,7 +88,7 @@ func (m LockMetric) ToCSVHeader() []string {
 	)
 }
 
-func (m LockMetric) ToCSVRow() []string {
+func (m *LockMetric) ToCSVRow() []string {
 	return append(
 		m.RequestMetric.ToCSVRow(),
 		m.LockName,

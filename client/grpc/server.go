@@ -2,11 +2,11 @@ package grpcserver
 
 import (
 	pb "csb/api/benchmarkpb"
+	runner "csb/client/runner"
 	config "csb/control/config"
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -23,13 +23,15 @@ type BenchmarkServiceServer struct {
 	termChan        chan struct{}
 	currStream      pb.BenchmarkService_CTRLStreamServer
 	streamMu        sync.Mutex
+	logger          *runner.Logger
 }
 
-func NewBenchmarkServiceServer(grpcserver *grpc.Server, termChan chan struct{}) *BenchmarkServiceServer {
+func NewBenchmarkServiceServer(grpcserver *grpc.Server, logger *runner.Logger, termChan chan struct{}) *BenchmarkServiceServer {
 	return &BenchmarkServiceServer{
 		keys:       make([]string, 0),
 		grpcServer: grpcserver,
 		termChan:   termChan,
+		logger:     logger,
 	}
 }
 
@@ -83,14 +85,14 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 			}
 
 			if err != nil {
-				log.Printf("Error receiving grpc message from client: %v", err)
+				s.logger.Printf("Error receiving grpc message from client: %v", err)
 				return err
 			}
 
 			switch payload := req.Payload.(type) {
 			case *pb.CTRLMessage_KeyBatch:
 				s.receiveKeys(payload.KeyBatch.GetKeys(), payload.KeyBatch.GetIsLastBatch())
-				log.Printf("Received batch of %d keys. Total keys: %d", len(payload.KeyBatch.Keys), s.receivedKeys)
+				s.logger.Printf("Received batch of %d keys. Total keys: %d", len(payload.KeyBatch.Keys), s.receivedKeys)
 				response := &pb.CTRLMessage{
 					Payload: &pb.CTRLMessage_KeyBatchResponse{
 						KeyBatchResponse: &pb.KeyBatchResponse{
@@ -103,11 +105,11 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 				bytes := payload.ConfigFile.GetContent()
 				err = json.Unmarshal(bytes, &s.ctlConfig)
 				if err != nil {
-					log.Printf("Error unmarshalling config file: %v", err)
+					s.logger.Printf("Error unmarshalling config file: %v", err)
 					return err
 				}
 				configPretty, _ := json.MarshalIndent(s.ctlConfig, "", "  ")
-				log.Printf("Received config file:\n %s", string(configPretty))
+				s.logger.Printf("Received config file:\n %s", string(configPretty))
 				response := &pb.CTRLMessage{
 					Payload: &pb.CTRLMessage_ConfigFileResponse{
 						ConfigFileResponse: &pb.ConfigFileResponse{
@@ -117,12 +119,12 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 				}
 				err = stream.Send(response)
 			case *pb.CTRLMessage_Shutdown:
-				log.Printf("Received shutdown message from client")
+				s.logger.Printf("Received shutdown message from client")
 				close(s.termChan)
 			}
 
 			if err != nil {
-				log.Printf("Error sending grpc message to client: %v", err)
+				s.logger.Printf("Error sending grpc message to client: %v", err)
 				return err
 			}
 		}

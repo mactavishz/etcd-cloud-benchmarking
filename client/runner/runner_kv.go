@@ -4,7 +4,6 @@ import (
 	"context"
 	generator "csb/data-generator"
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 	"sort"
@@ -17,7 +16,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-func NewBenchmarkRunnerKV(config *BenchmarkRunConfig) (*BenchmarkRunnerKV, error) {
+func NewBenchmarkRunnerKV(config *BenchmarkRunConfig, logger *Logger) (*BenchmarkRunnerKV, error) {
 	clients := make([]*clientv3.Client, config.InitialClients)
 
 	// Create multiple client connections
@@ -37,7 +36,7 @@ func NewBenchmarkRunnerKV(config *BenchmarkRunConfig) (*BenchmarkRunnerKV, error
 		clients[i] = cli
 	}
 	rg := rand.New(rand.NewSource(config.Seed))
-	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize, RequestMetric{}.ToCSVHeader())
+	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize, (&RequestMetric{}).ToCSVHeader())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics exporter: %w", err)
 	}
@@ -48,6 +47,7 @@ func NewBenchmarkRunnerKV(config *BenchmarkRunConfig) (*BenchmarkRunnerKV, error
 		rand:            rg,
 		generator:       generator.NewGenerator(rg),
 		metricsExporter: metricsExporter,
+		logger:          logger,
 	}, nil
 }
 
@@ -128,7 +128,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int, isW
 
 					var err error
 					var statusCode int
-					var statusText string = "N/A"
+					var statusText string = ""
 					operation := "read"
 
 					start := time.Now()
@@ -154,7 +154,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int, isW
 
 					go func() {
 						// Record raw metric
-						metric := RequestMetric{
+						metric := &RequestMetric{
 							Timestamp:  time.Now(),
 							Key:        key,
 							Operation:  operation,
@@ -170,7 +170,7 @@ func (r *BenchmarkRunnerKV) runLoadStep(ctx context.Context, numClients int, isW
 						// Add metric to exporter
 						if r.metricsExporter != nil {
 							if err := r.metricsExporter.AddMetric(metric); err != nil {
-								log.Printf("Failed to export metric: %v", err)
+								r.logger.Printf("Failed to export metric: %v", err)
 							}
 						}
 					}()
@@ -208,14 +208,14 @@ func (r *BenchmarkRunnerKV) calculateP99Latency(result *StepResult) {
 
 func (r *BenchmarkRunnerKV) Run() error {
 	// Warm-up period
-	log.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
+	r.logger.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
 	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), time.Duration(r.config.WarmupDuration))
 	defer warmupCancel()
 	warmupResult, err := r.runLoadStep(warmupCtx, r.config.InitialClients, true)
 	if err != nil {
 		return fmt.Errorf("warm-up failed: %w", err)
 	}
-	log.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
+	r.logger.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
 
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
@@ -223,7 +223,7 @@ func (r *BenchmarkRunnerKV) Run() error {
 	saturated := false
 
 	for remainingTime > 0 {
-		log.Printf("Starting step with %d clients", curNumClients)
+		r.logger.Printf("Starting step with %d clients", curNumClients)
 		var acutalDuration time.Duration
 		if remainingTime < time.Duration(r.config.StepDuration) {
 			acutalDuration = remainingTime
@@ -244,11 +244,11 @@ func (r *BenchmarkRunnerKV) Run() error {
 
 		// Check if SLA is violated
 		if !saturated && result.P99Latency > time.Duration(r.config.SLALatency) {
-			log.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)", curNumClients, result.P99Latency.Milliseconds())
+			r.logger.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)", curNumClients, result.P99Latency.Milliseconds())
 			saturated = true
 		}
 
-		log.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
+		r.logger.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
 
 		if !saturated {
 			curNumClients += r.config.ClientStepSize
@@ -262,10 +262,10 @@ func (r *BenchmarkRunnerKV) Run() error {
 
 	if r.metricsExporter != nil {
 		if err := r.metricsExporter.Close(); err != nil {
-			log.Printf("Failed to close metrics exporter: %v", err)
+			r.logger.Printf("Failed to close metrics exporter: %v", err)
 		}
 	}
 
-	log.Printf("All benchmark steps are completed")
+	r.logger.Printf("All benchmark steps are completed")
 	return nil
 }

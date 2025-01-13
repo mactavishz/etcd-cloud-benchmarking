@@ -7,7 +7,6 @@ import (
 	"math"
 	"math/rand"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,18 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// EtcdOp represents different types of operations
-type EtcdOp string
-
-const (
-	OpLockAcquire EtcdOp = "lock-acquire"
-	OpLockRelease EtcdOp = "lock-release"
-	OpLeaseRenew  EtcdOp = "lease-renew"
-	OpKVWrite     EtcdOp = "write"
-	OpKVRead      EtcdOp = "read"
-)
-
-func NewBenchmarkRunnerLock(config *BenchmarkRunConfig) (*BenchmarkRunnerLock, error) {
+func NewBenchmarkRunnerLock(config *BenchmarkRunConfig, logger *Logger) (*BenchmarkRunnerLock, error) {
 	clients := make([]*clientv3.Client, config.InitialClients)
 	sessions := make([]*concurrency.Session, config.InitialClients)
 
@@ -64,7 +52,7 @@ func NewBenchmarkRunnerLock(config *BenchmarkRunConfig) (*BenchmarkRunnerLock, e
 	}
 
 	rg := rand.New(rand.NewSource(config.Seed))
-	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize, LockMetric{}.ToCSVHeader())
+	metricsExporter, err := NewMetricsExporter(config.MetricsFile, config.MetricsBatchSize, (&LockMetric{}).ToCSVHeader())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics exporter: %w", err)
 	}
@@ -84,6 +72,7 @@ func NewBenchmarkRunnerLock(config *BenchmarkRunConfig) (*BenchmarkRunnerLock, e
 		metricsExporter: metricsExporter,
 		rand:            rg,
 		lockNames:       lockNames,
+		logger:          logger,
 	}, nil
 }
 
@@ -124,14 +113,14 @@ func (r *BenchmarkRunnerLock) addClients(numNewClients int) error {
 }
 
 // Quick acquire-release cycles without any KV operations
-func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clientID int, runPhase string, latencyChan chan time.Duration) error {
+func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
 	var (
 		acquireLatency, releaseLatency time.Duration
 		success                        bool = false
 		err                            error
 		statusCode, lockOpStatusCode   int
-		statusText                     string = "N/A"
-		lockOpStatusText               string = "N/A"
+		statusText                     string = ""
+		lockOpStatusText               string = ""
 	)
 
 	tryLockCtx, tryLockCtxCancel := GetTimeoutCtx(time.Duration(r.config.MaxWaitTime))
@@ -148,14 +137,14 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 		releaseLatency = time.Since(releaseStart)
 		if err != nil {
 			lockOpStatusCode, lockOpStatusText = GetErrInfo(err)
-			log.Printf("Failed to release the lock: %v", err)
+			r.logger.Printf("Failed to release the lock: %v", err)
 		}
 		latencyChan <- releaseLatency
 		success = true
 	} else if err == concurrency.ErrLocked {
-		log.Printf("Failed to acquire the lock, lock is held by other session, : %v", err)
+		r.logger.Printf("Failed to acquire the lock %s, which is held by other session: %v", mutex.Key(), err)
 	} else if err == concurrency.ErrSessionExpired {
-		log.Printf("Failed to acquire the lock, session expired: %v", err)
+		r.logger.Printf("Failed to acquire the lock, session expired: %v", err)
 	}
 
 	if err != nil && lockOpStatusCode == 0 {
@@ -163,11 +152,11 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 	}
 
 	go func() {
-		metric := LockMetric{
-			RequestMetric: RequestMetric{
+		metric := &LockMetric{
+			RequestMetric: &RequestMetric{
 				Timestamp:  time.Now(),
-				Key:        "N/A",
-				Operation:  strings.Join([]string{string(OpLockAcquire), string(OpLockRelease)}, "+"),
+				Key:        "",
+				Operation:  "lock",
 				Latency:    acquireLatency + releaseLatency,
 				Success:    success,
 				ClientID:   clientID,
@@ -176,7 +165,7 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 				StatusCode: statusCode,
 				StatusText: statusText,
 			},
-			LockName:         mutex.Key(),
+			LockName:         lockName,
 			AquireLatency:    acquireLatency,
 			ReleaseLatency:   releaseLatency,
 			LockOpStatusCode: lockOpStatusCode,
@@ -187,7 +176,7 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 		// Add metric to exporter
 		if r.metricsExporter != nil {
 			if err := r.metricsExporter.AddMetric(metric); err != nil {
-				log.Printf("Failed to export metric: %v", err)
+				r.logger.Printf("Failed to export metric: %v", err)
 			}
 		}
 	}()
@@ -196,14 +185,14 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 }
 
 // Mixed workload with lock acquisition, write, lock release operations
-func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg *rand.Rand, key string, clientID int, runPhase string, latencyChan chan time.Duration) error {
+func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg *rand.Rand, key string, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
 	var (
 		acquireLatency, kvLatency, releaseLatency time.Duration
 		success                                   bool = false
 		err                                       error
 		statusCode, lockOpStatusCode              int
-		statusText                                string = "N/A"
-		lockOpStatusText                          string = "N/A"
+		statusText                                string = ""
+		lockOpStatusText                          string = ""
 		isRead                                    bool   = r.config.WorkloadType == constants.WORKLOAD_TYPE_LOCK_MIXED_READ
 	)
 
@@ -242,13 +231,13 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 		latencyChan <- releaseLatency
 		if err != nil {
 			success = false
-			log.Printf("Failed to release the lock: %v", err)
+			r.logger.Printf("Failed to release the lock: %v", err)
 			lockOpStatusCode, lockOpStatusText = GetErrInfo(err)
 		}
 	} else if err == concurrency.ErrLocked {
-		log.Printf("Failed to acquire the lock, lock is held by other session, : %v", err)
+		r.logger.Printf("Failed to acquire the lock, lock is held by other session, : %v", err)
 	} else if err == concurrency.ErrSessionExpired {
-		log.Printf("Failed to acquire the lock, session expired: %v", err)
+		r.logger.Printf("Failed to acquire the lock, session expired: %v", err)
 	}
 
 	if err != nil && lockOpStatusCode == 0 {
@@ -256,24 +245,25 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 	}
 
 	go func() {
-		var operationStr []string
+		var operationStr string
 		if isRead {
-			operationStr = []string{string(OpLockAcquire), string(OpKVRead), string(OpLockRelease)}
+			operationStr = "lock-r"
 		} else {
-			operationStr = []string{string(OpLockAcquire), string(OpKVWrite), string(OpLockRelease)}
+			operationStr = "lock-w"
 		}
 		// Record metrics for all operations
-		metric := LockMetric{
-			RequestMetric: RequestMetric{
+		metric := &LockMetric{
+			RequestMetric: &RequestMetric{
 				Timestamp:  time.Now(),
-				Operation:  strings.Join(operationStr, "+"),
+				Key:        key,
+				Operation:  operationStr,
 				Latency:    acquireLatency + kvLatency + releaseLatency,
 				Success:    success,
 				RunPhase:   runPhase,
 				StatusCode: statusCode,
 				StatusText: statusText,
 			},
-			LockName:         mutex.Key(),
+			LockName:         lockName,
 			AquireLatency:    acquireLatency,
 			ReleaseLatency:   releaseLatency,
 			LockOpStatusCode: lockOpStatusCode,
@@ -284,7 +274,7 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 		// Add metric to exporter
 		if r.metricsExporter != nil {
 			if err := r.metricsExporter.AddMetric(metric); err != nil {
-				log.Printf("Failed to export metric: %v", err)
+				r.logger.Printf("Failed to export metric: %v", err)
 			}
 		}
 	}()
@@ -352,11 +342,11 @@ func (r *BenchmarkRunnerLock) runLoadStep(ctx context.Context, numClients int, i
 
 					switch r.config.WorkloadType {
 					case constants.WORKLOAD_TYPE_LOCK_ONLY:
-						err = r.runLockOnlyWorkload(mutex, clientID, runPhase, latencyChan)
+						err = r.runLockOnlyWorkload(mutex, clientID, lockName, runPhase, latencyChan)
 					case constants.WORKLOAD_TYPE_LOCK_MIXED_READ, constants.WORKLOAD_TYPE_LOCK_MIXED_WRITE:
-						err = r.runLockMixedWorkload(mutex, rg, key, clientID, runPhase, latencyChan)
+						err = r.runLockMixedWorkload(mutex, rg, key, clientID, lockName, runPhase, latencyChan)
 					case constants.WORKLOAD_TYPE_LOCK_CONTENTION:
-						err = r.runLockOnlyWorkload(mutex, clientID, runPhase, latencyChan)
+						err = r.runLockOnlyWorkload(mutex, clientID, lockName, runPhase, latencyChan)
 					}
 
 					if err != nil {
@@ -396,7 +386,7 @@ func (r *BenchmarkRunnerLock) calculateP99Latency(result *StepResult) {
 func (r *BenchmarkRunnerLock) Run() error {
 	// Implementation follows same pattern as BenchmarkRunnerKV
 	// Warm-up period
-	log.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
+	r.logger.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
 	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), time.Duration(r.config.WarmupDuration))
 	defer warmupCancel()
 
@@ -405,7 +395,7 @@ func (r *BenchmarkRunnerLock) Run() error {
 		return fmt.Errorf("warm-up failed: %w", err)
 	}
 
-	log.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
+	r.logger.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
 
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
@@ -434,12 +424,12 @@ func (r *BenchmarkRunnerLock) Run() error {
 		r.mut.Unlock()
 
 		if !saturated && result.P99Latency > time.Duration(r.config.SLALatency) {
-			log.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)",
+			r.logger.Printf("Throughput is saturated, SLA violated with %d clients (P99: %dms)",
 				curNumClients, result.P99Latency.Milliseconds())
 			saturated = true
 		}
 
-		log.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
+		r.logger.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
 
 		if !saturated {
 			curNumClients += r.config.ClientStepSize
@@ -453,11 +443,11 @@ func (r *BenchmarkRunnerLock) Run() error {
 
 	if r.metricsExporter != nil {
 		if err := r.metricsExporter.Close(); err != nil {
-			log.Printf("Failed to close metrics exporter: %v", err)
+			r.logger.Printf("Failed to close metrics exporter: %v", err)
 		}
 	}
 
-	log.Printf("All benchmark steps are completed")
+	r.logger.Printf("All benchmark steps are completed")
 	return nil
 }
 

@@ -18,7 +18,23 @@ import (
 	"google.golang.org/grpc"
 )
 
+var logger *runner.Logger
+
+func init() {
+	var err error
+	logger, err = runner.NewLogger("run.log")
+	if err != nil {
+		log.Fatalf("Failed to create logger: %v", err)
+	}
+}
+
+func exit(code int) {
+	logger.Close()
+	os.Exit(code)
+}
+
 func main() {
+	defer exit(0)
 	port := flag.Int("p", constants.DEFAULT_GRPC_SERVER_PORT, "The GRPC server port")
 	flag.Parse()
 
@@ -30,49 +46,50 @@ func main() {
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Printf("failed to listen: %v", err)
+		exit(1)
 	}
 
 	gServer := grpc.NewServer()
-	benchmarkServiceServer := grpcserver.NewBenchmarkServiceServer(gServer, termChan)
+	benchmarkServiceServer := grpcserver.NewBenchmarkServiceServer(gServer, logger, termChan)
 	pb.RegisterBenchmarkServiceServer(gServer, benchmarkServiceServer)
 	go waitUntilReady(benchmarkServiceServer, readyChan)
 
 	go func() {
-		log.Printf("Benchmark client's GRPC Server starting on port %d", *port)
+		logger.Printf("Benchmark client's GRPC Server starting on port %d", *port)
 		if err := gServer.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			logger.Printf("failed to serve: %v", err)
+			exit(1)
 		}
-		log.Println("GRPC Server stopped")
+		logger.Println("GRPC Server stopped")
 	}()
 
 	go func() {
 		<-readyChan
 		benchCfg := benchmarkServiceServer.GetConfig()
 		if benchCfg.Scenario == constants.SCENARIO_KV_STORE {
-			log.Println("Running KV store benchmark ...")
+			logger.Println("Running KV store benchmark ...")
 			runBenchmarkKV(benchmarkServiceServer)
 		} else {
-			log.Println("Running Lock service benchmark ...")
+			logger.Println("Running Lock service benchmark ...")
 			runBenchmarkLockService(benchmarkServiceServer)
 		}
 		err = benchmarkServiceServer.SendCTRLMessage(&pb.CTRLMessage{
 			Payload: &pb.CTRLMessage_BenchmarkFinished{},
 		})
 		if err != nil {
-			log.Printf("Failed to send benchmark finished message: %v", err)
+			logger.Printf("Failed to send benchmark finished message: %v", err)
 		}
 	}()
 
 	for {
 		select {
 		case <-sigChan:
-			fmt.Println()
-			log.Println("Manually shutting down server ...")
+			logger.Println("Manually shutting down server ...")
 			gServer.Stop()
 			return
 		case <-termChan:
-			log.Println("Gracefully shutting down server ...")
+			logger.Println("Gracefully shutting down server ...")
 			gServer.GracefulStop()
 			return
 		}
@@ -85,7 +102,8 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 	readPercent, writePercent, err := runner.GetRWPercentages(config.WorkloadType)
 
 	if err != nil {
-		log.Fatalf("Invalid workload type %s, %v", config.WorkloadType, err)
+		logger.Printf("Invalid workload type %s, %v", config.WorkloadType, err)
+		exit(1)
 	}
 
 	runConfig := &runner.BenchmarkRunConfig{
@@ -96,19 +114,21 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 		MetricsBatchSize: constants.DEFAULT_METRICS_BATCH_SIZE,
 	}
 
-	bench, err := runner.NewBenchmarkRunnerKV(runConfig)
+	bench, err := runner.NewBenchmarkRunnerKV(runConfig, logger)
 	if err != nil {
-		log.Fatalf("Failed to create benchmark runner: %v", err)
+		logger.Printf("Failed to create benchmark runner: %v", err)
+		exit(1)
 	}
 	defer bench.Close()
 
 	if err := bench.Run(); err != nil {
-		log.Fatalf("Benchmark failed: %v", err)
+		logger.Printf("Benchmark failed: %v", err)
+		exit(1)
 	}
 
 	log.Printf("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		log.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+		logger.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
 			result.NumClients,
 			result.P99Latency,
 			result.Operations,
@@ -126,19 +146,21 @@ func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
 		MetricsBatchSize: constants.DEFAULT_METRICS_BATCH_SIZE,
 	}
 
-	bench, err := runner.NewBenchmarkRunnerLock(runConfig)
+	bench, err := runner.NewBenchmarkRunnerLock(runConfig, logger)
 	if err != nil {
-		log.Fatalf("Failed to create benchmark runner: %v", err)
+		logger.Printf("Failed to create benchmark runner: %v", err)
+		exit(1)
 	}
 	defer bench.Close()
 
 	if err := bench.Run(); err != nil {
-		log.Fatalf("Benchmark failed: %v", err)
+		logger.Printf("Benchmark failed: %v", err)
+		exit(1)
 	}
 
-	log.Printf("Benchmark completed. Overall results:")
+	logger.Printf("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		log.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+		logger.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
 			result.NumClients,
 			result.P99Latency,
 			result.Operations,
@@ -148,11 +170,11 @@ func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
 }
 
 func waitUntilReady(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {
-	log.Println("Waiting for config and keys to start running benchmarks ...")
+	logger.Println("Waiting for config and keys to start running benchmarks ...")
 	// Wait for config and keys
 	for {
 		if s.IsReady() {
-			log.Println("Ready to run benchmarks")
+			logger.Println("Ready to run benchmarks")
 			break
 		} else {
 			time.Sleep(250 * time.Millisecond)
