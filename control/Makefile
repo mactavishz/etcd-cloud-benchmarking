@@ -24,3 +24,4 @@ run: all
 
 clean:
 	rm -f ../$(BIN)
+	rm -f *.log

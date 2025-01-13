@@ -11,3 +11,5 @@ run: all
 
 clean:
 	rm -f ../$(BIN)
+	rm -f *metrics.json
+	rm -f *.log
