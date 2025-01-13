@@ -76,11 +76,6 @@ func NewBenchmarkRunnerLock(config *BenchmarkRunConfig) (*BenchmarkRunnerLock, e
 		lockNames[i] = fmt.Sprintf("/lock%s", config.Keys[i])
 	}
 
-	var contentionLevel int
-	if config.WorkloadType == constants.WORKLOAD_TYPE_LOCK_CONTENTION {
-		contentionLevel = config.InitialClients / 2
-	}
-
 	return &BenchmarkRunnerLock{
 		config:          config,
 		clients:         clients,
@@ -89,7 +84,6 @@ func NewBenchmarkRunnerLock(config *BenchmarkRunConfig) (*BenchmarkRunnerLock, e
 		metricsExporter: metricsExporter,
 		rand:            rg,
 		lockNames:       lockNames,
-		contentionLevel: contentionLevel,
 	}, nil
 }
 
@@ -234,6 +228,7 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 			_, err = client.Put(kvCtx, key, string(newVal))
 		}
 		kvLatency = time.Since(kvStart)
+		latencyChan <- kvLatency
 		if err != nil {
 			statusCode, statusText = GetErrInfo(err)
 			success = false
@@ -244,12 +239,12 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 		releaseStart := time.Now()
 		err = mutex.Unlock(unLockCtx)
 		releaseLatency = time.Since(releaseStart)
+		latencyChan <- releaseLatency
 		if err != nil {
 			success = false
 			log.Printf("Failed to release the lock: %v", err)
 			lockOpStatusCode, lockOpStatusText = GetErrInfo(err)
 		}
-		latencyChan <- kvLatency
 	} else if err == concurrency.ErrLocked {
 		log.Printf("Failed to acquire the lock, lock is held by other session, : %v", err)
 	} else if err == concurrency.ErrSessionExpired {
@@ -309,6 +304,10 @@ func (r *BenchmarkRunnerLock) runLoadStep(ctx context.Context, numClients int, i
 		Latencies:  make([]time.Duration, 0),
 	}
 
+	if r.config.WorkloadType == constants.WORKLOAD_TYPE_LOCK_CONTENTION {
+		r.contentionLevel = numClients / 2
+	}
+
 	var wg sync.WaitGroup
 	latencyChan := make(chan time.Duration, numClients*int(time.Duration(r.config.StepDuration).Seconds()))
 
@@ -337,10 +336,12 @@ func (r *BenchmarkRunnerLock) runLoadStep(ctx context.Context, numClients int, i
 					var lockName string
 					var key string
 					if r.config.WorkloadType == constants.WORKLOAD_TYPE_LOCK_CONTENTION {
+						// Determine a random starting index for the section
+						startIndex := rg.Intn(len(r.lockNames) - r.contentionLevel + 1) // Ensure the range fits the slice
 						// Use a small subset of locks for higher contention
-						lockName = r.lockNames[rg.Intn(r.contentionLevel)]
+						lockName = r.lockNames[startIndex+rg.Intn(r.contentionLevel)]
 					} else {
-						// Use all available locks
+						// Randonly pick a lockname from all available names
 						lockName = r.lockNames[rg.Intn(len(r.lockNames))]
 					}
 
