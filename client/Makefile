@@ -12,4 +12,5 @@ run: all
 clean:
 	rm -f ../$(BIN)
 	rm -f *metrics.csv
+	rm -f keys.txt
 	rm -f *.log

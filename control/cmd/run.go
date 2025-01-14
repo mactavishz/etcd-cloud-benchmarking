@@ -29,7 +29,7 @@ var RunCmd = &cobra.Command{
 			fmt.Println("Config not found, please run 'benchctl config init' first")
 			os.Exit(1)
 		}
-		err := runBenchmark(args[0], GConfig.GetKeyFilePath())
+		err := runBenchmark(args[0])
 		if err != nil {
 			log.Fatalf("Error from the benchmark run: %v", err)
 		}
@@ -37,7 +37,7 @@ var RunCmd = &cobra.Command{
 	},
 }
 
-func runBenchmark(clientAddr string, keysFile string) error {
+func runBenchmark(clientAddr string) error {
 	termChan := make(chan struct{})
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -76,14 +76,6 @@ func runBenchmark(clientAddr string, keysFile string) error {
 		}
 	}
 
-	// send loaded keys to the client
-	go func() {
-		if err := benchmarkServiceClient.SendKeys(ctx, keysFile); err != nil {
-			log.Printf("Failed to send keys: %v", err)
-			terminate(stream, termChan)
-		}
-	}()
-
 	// send config file to the client
 	go func() {
 		if err := benchmarkServiceClient.SendConfigFile(ctx, GConfig.GetConfigFilePath()); err != nil {
@@ -117,9 +109,6 @@ func runBenchmark(clientAddr string, keysFile string) error {
 
 			// Handle server responses
 			switch payload := res.Payload.(type) {
-			case *pb.CTRLMessage_KeyBatchResponse:
-				keysReceived := payload.KeyBatchResponse.TotalKeysReceived
-				log.Printf("%d keys sent", keysReceived)
 			case *pb.CTRLMessage_ConfigFileResponse:
 				configReceived := payload.ConfigFileResponse.Success
 				log.Printf("Config file sent: %v", configReceived)

@@ -50,7 +50,6 @@ var rootCmd = &cobra.Command{
 func init() {
 	initConfigPath()
 	loadConfig()
-	rootCmd.AddCommand(LoadCmd)
 	rootCmd.AddCommand(RunCmd)
 	rootCmd.AddCommand(ConfigCmd)
 }

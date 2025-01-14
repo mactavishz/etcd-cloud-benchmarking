@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -13,7 +17,12 @@ import (
 	grpcserver "csb/client/grpc"
 	runner "csb/client/runner"
 	constants "csb/control/constants"
+	dg "csb/data-generator"
 	"log"
+
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 
 	"google.golang.org/grpc"
 )
@@ -67,6 +76,8 @@ func main() {
 	go func() {
 		<-readyChan
 		benchCfg := benchmarkServiceServer.GetConfig()
+		logger.Printf("Generating and loading data into the database ...")
+		load_db(benchmarkServiceServer)
 		if benchCfg.Scenario == constants.SCENARIO_KV_STORE {
 			logger.Println("Running KV store benchmark ...")
 			runBenchmarkKV(benchmarkServiceServer)
@@ -94,6 +105,98 @@ func main() {
 			return
 		}
 	}
+}
+
+func load_db(s *grpcserver.BenchmarkServiceServer) {
+	var (
+		dialTimeout    = 60 * time.Second
+		requestTimeout = 30 * time.Second
+	)
+	ctlConfig := s.GetConfig()
+	rg := rand.New(rand.NewSource(ctlConfig.Seed))
+	dataGenerator := dg.NewGenerator(rg)
+	data, err := dataGenerator.GenerateData(ctlConfig.NumKeys, ctlConfig.KeySize, ctlConfig.ValueSize)
+
+	logger.Println("Number of key-value paris generated: ", len(data))
+
+	if ctlConfig.NumKeys != len(data) {
+		logger.Printf("Failed to generate the required number of key-value pairs due to collision: %d\n", ctlConfig.NumKeys)
+	}
+
+	if err != nil {
+		logger.Printf("Failed to generate data: %v\n", err)
+		exit(1)
+	}
+
+	keys := make([]string, 0, len(data))
+
+	// Worker pool size
+	const workerCount = 100
+	tasks := make(chan struct {
+		key   string
+		value []byte
+	}, workerCount)
+
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dbClient, err := clientv3.New(clientv3.Config{
+				Endpoints:   ctlConfig.Endpoints,
+				DialTimeout: dialTimeout,
+				Logger:      zap.NewNop(),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer dbClient.Close()
+			for task := range tasks {
+				func(t struct {
+					key   string
+					value []byte
+				}) {
+					ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
+					_, err := dbClient.Put(ctx, t.key, string(t.value))
+					if err != nil {
+						switch err {
+						case context.Canceled:
+							logger.Printf("ctx is canceled by another routine: %v\n", err)
+						case context.DeadlineExceeded:
+							logger.Printf("ctx is attached with a deadline is exceeded: %v\n", err)
+						case rpctypes.ErrEmptyKey:
+							logger.Printf("client-side error: %v\n", err)
+						default:
+							logger.Printf("bad cluster endpoints, which are not etcd servers: %v\n", err)
+						}
+					}
+				}(task)
+			}
+		}()
+	}
+
+	// Send tasks to workers
+	for key, value := range data {
+		keys = append(keys, key)
+		tasks <- struct {
+			key   string
+			value []byte
+		}{key, value}
+	}
+	close(tasks) // Close the task channel to signal workers to stop
+
+	wg.Wait()
+	s.SetKeys(keys)
+	logger.Println("Saving generated keys in a file")
+	err = os.WriteFile(constants.DEFAULT_KEY_FILE, []byte(strings.Join(keys, "\n")), 0644)
+	if err != err {
+		logger.Printf("Error saving keys: %v\n", err)
+		exit(1)
+	}
+	logger.Printf("Data loaded successfully")
 }
 
 func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
@@ -128,7 +231,7 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 
 	log.Printf("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		logger.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+		logger.Printf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d",
 			result.NumClients,
 			result.P99Latency,
 			result.Operations,
@@ -160,7 +263,7 @@ func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
 
 	logger.Printf("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		logger.Printf("Clients: %d, P99 Latency: %v, Operations: %d, Errors: %d",
+		logger.Printf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d",
 			result.NumClients,
 			result.P99Latency,
 			result.Operations,
@@ -170,7 +273,7 @@ func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
 }
 
 func waitUntilReady(s *grpcserver.BenchmarkServiceServer, readyChan chan struct{}) {
-	logger.Println("Waiting for config and keys to start running benchmarks ...")
+	logger.Println("Waiting for config to start running benchmarks ...")
 	// Wait for config and keys
 	for {
 		if s.IsReady() {

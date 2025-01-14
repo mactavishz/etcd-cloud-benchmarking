@@ -14,16 +14,14 @@ import (
 
 type BenchmarkServiceServer struct {
 	pb.UnimplementedBenchmarkServiceServer
-	keys            []string
-	receivedKeys    int32
-	allKeysReceived bool
-	keysMu          sync.RWMutex
-	ctlConfig       *config.BenchctlConfig
-	grpcServer      *grpc.Server
-	termChan        chan struct{}
-	currStream      pb.BenchmarkService_CTRLStreamServer
-	streamMu        sync.Mutex
-	logger          *runner.Logger
+	keys       []string
+	keysMu     sync.RWMutex
+	ctlConfig  *config.BenchctlConfig
+	grpcServer *grpc.Server
+	termChan   chan struct{}
+	currStream pb.BenchmarkService_CTRLStreamServer
+	streamMu   sync.Mutex
+	logger     *runner.Logger
 }
 
 func NewBenchmarkServiceServer(grpcserver *grpc.Server, logger *runner.Logger, termChan chan struct{}) *BenchmarkServiceServer {
@@ -36,7 +34,7 @@ func NewBenchmarkServiceServer(grpcserver *grpc.Server, logger *runner.Logger, t
 }
 
 func (s *BenchmarkServiceServer) IsReady() bool {
-	return s.allKeysReceived && s.ctlConfig != nil
+	return s.ctlConfig != nil
 }
 
 func (s *BenchmarkServiceServer) GetConfig() *config.BenchctlConfig {
@@ -47,6 +45,12 @@ func (s *BenchmarkServiceServer) GetKeys() []string {
 	s.keysMu.RLock()
 	defer s.keysMu.RUnlock()
 	return append([]string{}, s.keys...)
+}
+
+func (s *BenchmarkServiceServer) SetKeys(keys []string) {
+	s.keysMu.Lock()
+	s.keys = append(s.keys, keys...)
+	s.keysMu.Unlock()
 }
 
 func (s *BenchmarkServiceServer) SendCTRLMessage(msg *pb.CTRLMessage) error {
@@ -90,17 +94,6 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 			}
 
 			switch payload := req.Payload.(type) {
-			case *pb.CTRLMessage_KeyBatch:
-				s.receiveKeys(payload.KeyBatch.GetKeys(), payload.KeyBatch.GetIsLastBatch())
-				s.logger.Printf("Received batch of %d keys. Total keys: %d", len(payload.KeyBatch.Keys), s.receivedKeys)
-				response := &pb.CTRLMessage{
-					Payload: &pb.CTRLMessage_KeyBatchResponse{
-						KeyBatchResponse: &pb.KeyBatchResponse{
-							TotalKeysReceived: s.receivedKeys,
-						},
-					},
-				}
-				err = stream.Send(response)
 			case *pb.CTRLMessage_ConfigFile:
 				bytes := payload.ConfigFile.GetContent()
 				err = json.Unmarshal(bytes, &s.ctlConfig)
@@ -130,12 +123,4 @@ func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStrea
 		}
 
 	}
-}
-
-func (s *BenchmarkServiceServer) receiveKeys(keys []string, isLastBatch bool) {
-	s.keysMu.Lock()
-	s.keys = append(s.keys, keys...)
-	s.receivedKeys += int32(len(keys))
-	s.allKeysReceived = isLastBatch
-	s.keysMu.Unlock()
 }

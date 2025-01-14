@@ -11,24 +11,11 @@ service BenchmarkService {
 
 message CTRLMessage {
   oneof payload {
-    KeyBatch key_batch = 1;
-    KeyBatchResponse key_batch_response = 2;
     ConfigFile config_file = 3;
     ConfigFileResponse config_file_response = 4;
     Shutdown shutdown = 5;
     BenchmarkFinished benchmark_finished = 6;
   }
-}
-
-// KeyBatch represents a batch of keys being sent
-message KeyBatch {
-  repeated string keys = 1;
-  bool is_last_batch = 2;
-}
-
-// KeyBatchResponse represents the response after receiving keys
-message KeyBatchResponse {
-  int32 total_keys_received = 1;
 }
 
 message ConfigFile {
