@@ -1,13 +1,14 @@
 package cmd
 
 import (
-	benchCfg "csb/control/config"
-	config "csb/control/config"
-	constants "csb/control/constants"
 	"fmt"
 	"math/rand"
 	"os"
 	"path"
+
+	benchCfg "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
+	config "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
+	constants "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
 
 	"github.com/spf13/cobra"
 )

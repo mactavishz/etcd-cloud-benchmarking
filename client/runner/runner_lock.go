@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	grpcserver "csb/client/grpc"
-	lg "csb/client/logger"
-	"csb/control/constants"
+	grpcserver "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/grpc"
+	lg "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/logger"
+	"git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"

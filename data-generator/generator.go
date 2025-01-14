@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"csb/control/constants"
+	"git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
 
 	"github.com/google/uuid"
 )

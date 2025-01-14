@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	pb "csb/api/benchmarkpb"
-	grpcclient "csb/control/grpc"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	pb "git.tu-berlin.de/mactavishz/csb-project-ws2425/api/benchmarkpb"
+	grpcclient "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/grpc"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"

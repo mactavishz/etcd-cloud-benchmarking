@@ -1,9 +1,10 @@
 package main
 
 import (
-	cmd "csb/control/cmd"
 	"fmt"
 	"os"
+
+	cmd "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/cmd"
 )
 
 func main() {

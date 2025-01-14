@@ -2,11 +2,12 @@ package generator
 
 import (
 	"bytes"
-	config "csb/control/config"
 	"math/rand"
 	"reflect"
 	"sort"
 	"testing"
+
+	config "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
 )
 
 func TestGenerateDataDeterminism(t *testing.T) {

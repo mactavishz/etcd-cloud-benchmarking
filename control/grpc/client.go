@@ -2,9 +2,10 @@ package grpcclient
 
 import (
 	"context"
-	pb "csb/api/benchmarkpb"
 	"io"
 	"os"
+
+	pb "git.tu-berlin.de/mactavishz/csb-project-ws2425/api/benchmarkpb"
 
 	"google.golang.org/grpc"
 )
