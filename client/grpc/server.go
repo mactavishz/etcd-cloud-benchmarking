@@ -2,7 +2,7 @@ package grpcserver
 
 import (
 	pb "csb/api/benchmarkpb"
-	runner "csb/client/runner"
+	logger "csb/client/logger"
 	config "csb/control/config"
 	"encoding/json"
 	"errors"
@@ -21,10 +21,10 @@ type BenchmarkServiceServer struct {
 	termChan   chan struct{}
 	currStream pb.BenchmarkService_CTRLStreamServer
 	streamMu   sync.Mutex
-	logger     *runner.Logger
+	logger     *logger.Logger
 }
 
-func NewBenchmarkServiceServer(grpcserver *grpc.Server, logger *runner.Logger, termChan chan struct{}) *BenchmarkServiceServer {
+func NewBenchmarkServiceServer(grpcserver *grpc.Server, logger *logger.Logger, termChan chan struct{}) *BenchmarkServiceServer {
 	return &BenchmarkServiceServer{
 		keys:       make([]string, 0),
 		grpcServer: grpcserver,
@@ -60,6 +60,20 @@ func (s *BenchmarkServiceServer) SendCTRLMessage(msg *pb.CTRLMessage) error {
 		return errors.New("no active stream")
 	}
 	return s.currStream.Send(msg)
+}
+
+func (s *BenchmarkServiceServer) SendBenchmarkStatus(status string) {
+	msg := &pb.CTRLMessage{
+		Payload: &pb.CTRLMessage_BenchmarkStatus{
+			BenchmarkStatus: &pb.BenchmarkStatus{
+				Status: status,
+			},
+		},
+	}
+	err := s.SendCTRLMessage(msg)
+	if err != nil {
+		s.logger.Printf("Error sending benchmark status message: %v", err)
+	}
 }
 
 func (s *BenchmarkServiceServer) CTRLStream(stream pb.BenchmarkService_CTRLStreamServer) error {

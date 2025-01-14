@@ -109,6 +109,8 @@ func runBenchmark(clientAddr string) error {
 
 			// Handle server responses
 			switch payload := res.Payload.(type) {
+			case *pb.CTRLMessage_BenchmarkStatus:
+				log.Printf("Benchmark status: %v", payload.BenchmarkStatus.Status)
 			case *pb.CTRLMessage_ConfigFileResponse:
 				configReceived := payload.ConfigFileResponse.Success
 				log.Printf("Config file sent: %v", configReceived)

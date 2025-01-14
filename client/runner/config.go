@@ -1,6 +1,7 @@
 package runner
 
 import (
+	logger "csb/client/logger"
 	benchCfg "csb/control/config"
 	"csb/control/constants"
 	generator "csb/data-generator"
@@ -63,7 +64,7 @@ type BenchmarkRunnerKV struct {
 	mut             sync.Mutex
 	rand            *rand.Rand
 	generator       *generator.Generator
-	logger          *Logger
+	logger          *logger.Logger
 }
 
 // BenchmarkRunnerLock manages the lock service benchmark
@@ -80,5 +81,5 @@ type BenchmarkRunnerLock struct {
 	// Lock-specific configurations
 	lockNames       []string // List of available lock names
 	contentionLevel int      // Number of clients competing for same lock
-	logger          *Logger
+	logger          *logger.Logger
 }

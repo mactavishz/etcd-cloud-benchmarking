@@ -15,6 +15,7 @@ import (
 
 	pb "csb/api/benchmarkpb"
 	grpcserver "csb/client/grpc"
+	lg "csb/client/logger"
 	runner "csb/client/runner"
 	constants "csb/control/constants"
 	dg "csb/data-generator"
@@ -27,11 +28,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-var logger *runner.Logger
+var logger *lg.Logger
 
 func init() {
 	var err error
-	logger, err = runner.NewLogger("run.log")
+	logger, err = lg.NewLogger("run.log")
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
@@ -77,12 +78,15 @@ func main() {
 		<-readyChan
 		benchCfg := benchmarkServiceServer.GetConfig()
 		logger.Printf("Generating and loading data into the database ...")
+		benchmarkServiceServer.SendBenchmarkStatus("Start generating and loading data into the database")
 		load_db(benchmarkServiceServer)
 		if benchCfg.Scenario == constants.SCENARIO_KV_STORE {
 			logger.Println("Running KV store benchmark ...")
+			benchmarkServiceServer.SendBenchmarkStatus("Start running KV store benchmark ...")
 			runBenchmarkKV(benchmarkServiceServer)
 		} else {
 			logger.Println("Running Lock service benchmark ...")
+			benchmarkServiceServer.SendBenchmarkStatus("Start running Lock service benchmark")
 			runBenchmarkLockService(benchmarkServiceServer)
 		}
 		err = benchmarkServiceServer.SendCTRLMessage(&pb.CTRLMessage{
@@ -197,6 +201,7 @@ func load_db(s *grpcserver.BenchmarkServiceServer) {
 		exit(1)
 	}
 	logger.Printf("Data loaded successfully")
+	s.SendBenchmarkStatus("Synthetic data generated and loaded successfully")
 }
 
 func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
@@ -219,24 +224,24 @@ func runBenchmarkKV(s *grpcserver.BenchmarkServiceServer) {
 
 	bench, err := runner.NewBenchmarkRunnerKV(runConfig, logger)
 	if err != nil {
+		s.SendBenchmarkStatus("Failed to create benchmark runner")
 		logger.Printf("Failed to create benchmark runner: %v", err)
 		exit(1)
 	}
 	defer bench.Close()
 
-	if err := bench.Run(); err != nil {
+	if err := bench.Run(s); err != nil {
+		s.SendBenchmarkStatus("Benchmark failed")
 		logger.Printf("Benchmark failed: %v", err)
 		exit(1)
 	}
 
 	log.Printf("Benchmark completed. Overall results:")
+	s.SendBenchmarkStatus("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		logger.Printf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d",
-			result.NumClients,
-			result.P99Latency,
-			result.Operations,
-			result.Errors,
-		)
+		resultStr := fmt.Sprintf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d", result.NumClients, result.P99Latency, result.Operations, result.Errors)
+		logger.Println(resultStr)
+		s.SendBenchmarkStatus(resultStr)
 	}
 }
 
@@ -251,24 +256,24 @@ func runBenchmarkLockService(s *grpcserver.BenchmarkServiceServer) {
 
 	bench, err := runner.NewBenchmarkRunnerLock(runConfig, logger)
 	if err != nil {
+		s.SendBenchmarkStatus("Failed to create benchmark runner")
 		logger.Printf("Failed to create benchmark runner: %v", err)
 		exit(1)
 	}
 	defer bench.Close()
 
-	if err := bench.Run(); err != nil {
+	if err := bench.Run(s); err != nil {
+		s.SendBenchmarkStatus("Benchmark failed")
 		logger.Printf("Benchmark failed: %v", err)
 		exit(1)
 	}
 
-	logger.Printf("Benchmark completed. Overall results:")
+	log.Printf("Benchmark completed. Overall results:")
+	s.SendBenchmarkStatus("Benchmark completed. Overall results:")
 	for _, result := range bench.GetResults() {
-		logger.Printf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d",
-			result.NumClients,
-			result.P99Latency,
-			result.Operations,
-			result.Errors,
-		)
+		resultStr := fmt.Sprintf("Step with #Clients: %d, P99 Latency: %v, #Operations: %d, #Errors: %d", result.NumClients, result.P99Latency, result.Operations, result.Errors)
+		logger.Println(resultStr)
+		s.SendBenchmarkStatus(resultStr)
 	}
 }
 

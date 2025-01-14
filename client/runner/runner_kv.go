@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	grpcserver "csb/client/grpc"
+	lg "csb/client/logger"
 	generator "csb/data-generator"
 	"fmt"
 	"math"
@@ -16,7 +18,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-func NewBenchmarkRunnerKV(config *BenchmarkRunConfig, logger *Logger) (*BenchmarkRunnerKV, error) {
+func NewBenchmarkRunnerKV(config *BenchmarkRunConfig, logger *lg.Logger) (*BenchmarkRunnerKV, error) {
 	clients := make([]*clientv3.Client, config.InitialClients)
 
 	// Create multiple client connections
@@ -206,16 +208,21 @@ func (r *BenchmarkRunnerKV) calculateP99Latency(result *StepResult) {
 	result.P99Latency = sorted[index]
 }
 
-func (r *BenchmarkRunnerKV) Run() error {
+func (r *BenchmarkRunnerKV) Run(s *grpcserver.BenchmarkServiceServer) error {
 	// Warm-up period
-	r.logger.Printf("Starting warm-up step (%v)...", r.config.WarmupDuration)
+	reportStr := fmt.Sprintf("Starting warm-up step (%v)...", r.config.WarmupDuration)
+	r.logger.Println(reportStr)
+	s.SendBenchmarkStatus(reportStr)
 	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), time.Duration(r.config.WarmupDuration))
 	defer warmupCancel()
 	warmupResult, err := r.runLoadStep(warmupCtx, r.config.InitialClients, true)
 	if err != nil {
+		s.SendBenchmarkStatus("Warm-up failed")
 		return fmt.Errorf("warm-up failed: %w", err)
 	}
-	r.logger.Printf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
+	reportStr = fmt.Sprintf("Warm-up step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", r.config.InitialClients, warmupResult.P99Latency.Milliseconds(), warmupResult.Operations, warmupResult.Errors)
+	r.logger.Println(reportStr)
+	s.SendBenchmarkStatus(reportStr)
 
 	// Main benchmark loop
 	curNumClients := r.config.InitialClients
@@ -223,7 +230,9 @@ func (r *BenchmarkRunnerKV) Run() error {
 	maxClientsReached := false
 
 	for remainingTime > 0 {
-		r.logger.Printf("Starting step with %d clients", curNumClients)
+		reportStr = fmt.Sprintf("Starting step with %d clients...", curNumClients)
+		r.logger.Println(reportStr)
+		s.SendBenchmarkStatus(reportStr)
 		var acutalDuration time.Duration
 		if remainingTime < time.Duration(r.config.StepDuration) {
 			acutalDuration = remainingTime
@@ -235,6 +244,7 @@ func (r *BenchmarkRunnerKV) Run() error {
 		defer stepCancel()
 
 		if err != nil {
+			s.SendBenchmarkStatus("Step failed")
 			return fmt.Errorf("step failed with %d clients: %w", curNumClients, err)
 		}
 
@@ -242,7 +252,9 @@ func (r *BenchmarkRunnerKV) Run() error {
 		r.results = append(r.results, result)
 		r.mut.Unlock()
 
-		r.logger.Printf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
+		reportStr = fmt.Sprintf("Step completed with %d clients (P99: %dms), #Ops: %d, #Errors: %d", curNumClients, result.P99Latency.Milliseconds(), result.Operations, result.Errors)
+		r.logger.Println(reportStr)
+		s.SendBenchmarkStatus(reportStr)
 
 		if curNumClients >= r.config.MaxClients {
 			if !maxClientsReached {
@@ -265,10 +277,12 @@ func (r *BenchmarkRunnerKV) Run() error {
 
 	if r.metricsExporter != nil {
 		if err := r.metricsExporter.Close(); err != nil {
+			s.SendBenchmarkStatus("Failed to close metrics exporter")
 			r.logger.Printf("Failed to close metrics exporter: %v", err)
 		}
 	}
 
+	s.SendBenchmarkStatus("All benchmark steps are completed")
 	r.logger.Printf("All benchmark steps are completed")
 	return nil
 }

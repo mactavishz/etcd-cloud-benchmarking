@@ -11,6 +11,7 @@ service BenchmarkService {
 
 message CTRLMessage {
   oneof payload {
+    BenchmarkStatus benchmark_status = 1;
     ConfigFile config_file = 3;
     ConfigFileResponse config_file_response = 4;
     Shutdown shutdown = 5;
@@ -24,6 +25,10 @@ message ConfigFile {
 
 message ConfigFileResponse {
   bool success = 1;
+}
+
+message BenchmarkStatus {
+  string status = 1;
 }
 
 message Shutdown {}
