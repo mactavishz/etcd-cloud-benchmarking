@@ -13,14 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	pb "csb/api/benchmarkpb"
+	grpcserver "csb/client/grpc"
+	lg "csb/client/logger"
+	runner "csb/client/runner"
+	constants "csb/control/constants"
+	dg "csb/data-generator"
 	"log"
-
-	pb "git.tu-berlin.de/mactavishz/csb-project-ws2425/api/benchmarkpb"
-	grpcserver "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/grpc"
-	lg "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/logger"
-	runner "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/runner"
-	constants "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
-	dg "git.tu-berlin.de/mactavishz/csb-project-ws2425/data-generator"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"

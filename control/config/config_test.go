@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
+	"csb/control/constants"
 )
 
 func TestValidateConfig(t *testing.T) {

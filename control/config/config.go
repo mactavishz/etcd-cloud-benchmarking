@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
+	"csb/control/constants"
 
 	validator "github.com/go-playground/validator/v10"
 )

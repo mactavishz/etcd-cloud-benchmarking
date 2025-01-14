@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	grpcserver "csb/client/grpc"
+	lg "csb/client/logger"
+	generator "csb/data-generator"
 	"fmt"
 	"math"
 	"math/rand"
@@ -9,10 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	grpcserver "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/grpc"
-	lg "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/logger"
-	generator "git.tu-berlin.de/mactavishz/csb-project-ws2425/data-generator"
 
 	"go.uber.org/zap"
 

@@ -1,15 +1,14 @@
 package runner
 
 import (
+	logger "csb/client/logger"
+	benchCfg "csb/control/config"
+	"csb/control/constants"
+	generator "csb/data-generator"
 	"errors"
 	"math/rand"
 	"sync"
 	"time"
-
-	logger "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/logger"
-	benchCfg "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
-	"git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
-	generator "git.tu-berlin.de/mactavishz/csb-project-ws2425/data-generator"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"

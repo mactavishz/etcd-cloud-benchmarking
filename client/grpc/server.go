@@ -1,14 +1,13 @@
 package grpcserver
 
 import (
+	pb "csb/api/benchmarkpb"
+	logger "csb/client/logger"
+	config "csb/control/config"
 	"encoding/json"
 	"errors"
 	"io"
 	"sync"
-
-	pb "git.tu-berlin.de/mactavishz/csb-project-ws2425/api/benchmarkpb"
-	logger "git.tu-berlin.de/mactavishz/csb-project-ws2425/client/logger"
-	config "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
 
 	"google.golang.org/grpc"
 )

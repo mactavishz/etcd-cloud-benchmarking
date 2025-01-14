@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode"
 
-	benchCfg "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/config"
-	constants "git.tu-berlin.de/mactavishz/csb-project-ws2425/control/constants"
+	benchCfg "csb/control/config"
+	constants "csb/control/constants"
 
 	"github.com/spf13/cobra"
 )
