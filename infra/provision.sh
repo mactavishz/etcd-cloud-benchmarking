@@ -33,6 +33,7 @@ ZONE="${REGION}-c"
 NETWORK="etcd-network"
 SUBNET="etcd-subnet"
 SUBNET_RANGE="10.0.0.0/24"
+TMP_SERVICE_FILE="etcd.service"
 
 # Machine configurations
 ETCD_MACHINE_TYPE="n1-standard-2"
@@ -99,6 +100,46 @@ setup_network() {
     --source-ranges=0.0.0.0/0
 }
 
+create_and_mount_disk() {
+  local instance_name=$1
+  local disk_size=$2
+  local mount_point=$3
+  local owner="${4:-}" # Optional owner parameter
+
+  # Create and attach the data disk
+  gcloud compute disks create "${instance_name}"-data \
+    --size="${disk_size}" \
+    --type=pd-ssd \
+    --zone=${ZONE}
+
+  gcloud compute instances attach-disk "${instance_name}" \
+    --disk="${instance_name}"-data \
+    --zone=${ZONE}
+
+  # Wait for instance to be ready for SSH
+  if ! wait_for_ssh "${name}"; then
+    echo "Failed to connect to instance ${name}. Exiting..."
+    exit 1
+  fi
+
+  # Format and mount command
+  # See https://cloud.google.com/compute/docs/disks/format-mount-disk-linux
+  local mount_commands="
+    sudo mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/sdb
+    sudo mkdir -p ${mount_point}
+    echo '/dev/sdb ${mount_point} ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
+    sudo mount -a"
+
+  # Add owner change if specified
+  if [[ -n "${owner}" ]]; then
+    mount_commands+="
+    sudo chown -R ${owner}:${owner} ${mount_point}"
+  fi
+
+  # Execute commands
+  gcloud compute ssh "${instance_name}" --zone=${ZONE} --command="${mount_commands}"
+}
+
 # Create etcd cluster nodes
 create_etcd_node() {
   local name=$1
@@ -117,31 +158,8 @@ create_etcd_node() {
     --metadata-from-file startup-script=etcd_startup.sh \
     --tags=${ETCD_NODE_TAG}
 
-  # Create and attach the data disk
-  # See https://cloud.google.com/compute/docs/disks/add-persistent-disk
-  gcloud compute disks create "${name}"-data \
-    --size=${ETCD_DISK_SIZE} \
-    --type=pd-ssd \
-    --zone=${ZONE}
-
-  gcloud compute instances attach-disk "${name}" \
-    --disk="${name}"-data \
-    --zone=${ZONE}
-
-  # Wait for instance to be ready for SSH
-  if ! wait_for_ssh "${name}"; then
-    echo "Failed to connect to instance ${name}. Exiting..."
-    exit 1
-  fi
-
-  # Format and mount the data disk
-  # See https://cloud.google.com/compute/docs/disks/format-mount-disk-linux
-  gcloud compute ssh "${name}" --zone=${ZONE} --command="
-        sudo mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/sdb
-        sudo mkdir -p /var/lib/etcd
-        echo '/dev/sdb /var/lib/etcd ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
-        sudo mount -a
-        sudo chown -R systemd-network:systemd-network /var/lib/etcd"
+  # Create and mount data disk with systemd-network owner
+  create_and_mount_disk "${name}" "${ETCD_DISK_SIZE}" "/var/lib/etcd" "systemd-network"
 }
 
 # Create benchmark client machine
@@ -159,55 +177,36 @@ create_benchmark_machine() {
     --metadata-from-file startup-script=benchmark_client_startup.sh \
     --tags=${BENCHMARK_CLIENT_TAG}
 
-  # Create and attach the data disk
-  # See https://cloud.google.com/compute/docs/disks/add-persistent-disk
-  gcloud compute disks create "${name}"-data \
-    --size=${BENCHMARK_DISK_SIZE} \
-    --type=pd-ssd \
-    --zone=${ZONE}
+  create_and_mount_disk "${name}" "${BENCHMARK_DISK_SIZE}" "/home/${USER}/benchmark-data"
+}
 
-  gcloud compute instances attach-disk "${name}" \
-    --disk="${name}"-data \
-    --zone=${ZONE}
+# Deploy etcd cluster with specified number of nodes
+deploy_cluster() {
+  local node_count=$1
+  local prefix="etcd"
 
-  # Wait for instance to be ready for SSH
-  if ! wait_for_ssh "${name}"; then
-    echo "Failed to connect to instance ${name}. Exiting..."
+  # Set the appropriate instance prefix based on node count
+  case $node_count in
+  1) prefix="etcd-single" ;;
+  3) prefix="etcd-3" ;;
+  5) prefix="etcd-5" ;;
+  *)
+    echo "Invalid node count: $node_count"
     exit 1
+    ;;
+  esac
+
+  setup_network
+
+  # Create etcd nodes
+  if [ $node_count -eq 1 ]; then
+    create_etcd_node "${prefix}" 0
+  else
+    for i in $(seq 0 $((node_count - 1))); do
+      create_etcd_node "${prefix}-${i}" "$i"
+    done
   fi
 
-  # Format and mount the data disk
-  # See https://cloud.google.com/compute/docs/disks/format-mount-disk-linux
-  gcloud compute ssh "${name}" --zone=${ZONE} --command="
-        sudo mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/sdb
-        mkdir -p /home/${USER}/benchmark-data
-        echo '/dev/sdb /home/${USER}/benchmark-data ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
-        sudo mount -a
-        "
-}
-
-# Deploy single node etcd cluster
-deploy_single_node() {
-  setup_network
-  create_etcd_node "etcd-single" 0
-  create_benchmark_machine "benchmark-client"
-}
-
-# Deploy 3-node etcd cluster
-deploy_three_node() {
-  setup_network
-  for i in {0..2}; do
-    create_etcd_node "etcd-3-${i}" "$i"
-  done
-  create_benchmark_machine "benchmark-client"
-}
-
-# Deploy 5-node etcd cluster
-deploy_five_node() {
-  setup_network
-  for i in {0..4}; do
-    create_etcd_node "etcd-5-${i}" "$i"
-  done
   create_benchmark_machine "benchmark-client"
 }
 
@@ -292,6 +291,130 @@ cleanup() {
   gcloud compute networks delete "${NETWORK}" --quiet
 }
 
+# Generate etcd systemd service template
+generate_etcd_service() {
+  local name=$1
+  local initial_cluster=$2
+  local initial_cluster_state=$3
+  local private_ip=$4
+
+  cat <<EOF >${TMP_SERVICE_FILE}
+[Unit]
+Description=etcd distributed key-value store
+Documentation=https://github.com/etcd-io/etcd
+After=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/etcd \\
+  --name=${name} \\
+  --data-dir=/var/lib/etcd \\
+  --listen-peer-urls=http://${private_ip}:2380 \\
+  --listen-client-urls=http://${private_ip}:2379,http://127.0.0.1:2379 \\
+  --initial-advertise-peer-urls=http://${private_ip}:2380 \\
+  --advertise-client-urls=http://${private_ip}:2379 \\
+  --initial-cluster-token=etcd-cluster \\
+  --initial-cluster=${initial_cluster} \\
+  --initial-cluster-state=${initial_cluster_state}
+Restart=always
+RestartSec=10s
+LimitNOFILE=40000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# Function to get internal IP of an instance
+get_internal_ip() {
+  local instance=$1
+  gcloud compute instances describe "${instance}" \
+    --zone=${ZONE} \
+    --format='get(networkInterfaces[0].networkIP)'
+}
+
+configure_etcd_cluster() {
+  local node_count=$1
+  local prefix="etcd"
+
+  case $node_count in
+  1) prefix="etcd-single" ;;
+  3) prefix="etcd-3" ;;
+  5) prefix="etcd-5" ;;
+  *)
+    echo "Error: invalid number of nodes: $node_count"
+    exit 1
+    ;;
+  esac
+
+  local cluster_nodes=""
+  local ips=()
+
+  # Get IPs of all nodes
+  for i in $(seq 0 $((node_count - 1))); do
+    local instance
+    if [ $node_count -eq 1 ]; then
+      instance="${prefix}"
+    else
+      instance="${prefix}-${i}"
+    fi
+
+    local ip=$(get_internal_ip "${instance}")
+    ips+=($ip)
+
+    if [ -n "$cluster_nodes" ]; then
+      cluster_nodes="${cluster_nodes},"
+    fi
+    cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
+  done
+
+  for i in $(seq 0 $((node_count - 1))); do
+    local instance
+    if [ $node_count -eq 1 ]; then
+      instance="${prefix}"
+    else
+      instance="${prefix}-${i}"
+    fi
+
+    generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+
+    # Copy and enable service
+    gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
+    rm ${TMP_SERVICE_FILE}
+    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+            sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
+            sudo systemctl daemon-reload
+            sudo systemctl enable etcd
+            sudo systemctl start etcd
+        "
+  done
+
+  # Verify cluster health for all nodes
+  for i in $(seq 0 $((node_count - 1))); do
+    local instance
+    if [ $node_count -eq 1 ]; then
+      instance="${prefix}"
+    else
+      instance="${prefix}-${i}"
+    fi
+
+    echo "Verifying health of node: ${instance}"
+    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+            ETCDCTL_API=3 etcdctl endpoint health --cluster
+            ETCDCTL_API=3 etcdctl member list
+        "
+  done
+}
+
+# Function to verify cluster health
+verify_cluster() {
+  local instance=$1
+  gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+        ETCDCTL_API=3 etcdctl endpoint health --cluster
+        ETCDCTL_API=3 etcdctl member list
+    "
+}
+
 main() {
   # Main script execution
   if [ $# -eq 2 ]; then
@@ -313,15 +436,18 @@ main() {
   case "$1" in
   "single")
     confirm_gcloud_project
-    deploy_single_node
+    deploy_cluster 1
+    configure_etcd_cluster 1
     ;;
   "three")
     confirm_gcloud_project
-    deploy_three_node
+    deploy_cluster 3
+    configure_etcd_cluster 3
     ;;
   "five")
     confirm_gcloud_project
-    deploy_five_node
+    deploy_cluster 5
+    configure_etcd_cluster 5
     ;;
   "cleanup")
     cleanup
