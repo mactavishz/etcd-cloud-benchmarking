@@ -9,12 +9,14 @@ fi
 
 # Usage functions
 print_usage() {
-  echo "Usage: $0 [command]"
+  echo "Usage: $0 [command] [zone]"
   echo "Commands:"
   echo "  single  - Deploy single node etcd cluster with benchmark machine"
   echo "  three   - Deploy three node etcd cluster with benchmark machine"
   echo "  five    - Deploy five node etcd cluster with benchmark machine"
   echo "  cleanup - Cleanup all resources"
+  echo "Arguments:"
+  echo "  zone    - Zone, in which the resources are created and deployed, use only 'a', 'b', or 'c'"
 }
 
 # Exit if no argument provided
@@ -26,7 +28,7 @@ fi
 
 # Common variables
 PROJECT_ID="$(gcloud config get core/project)"
-REGION="europe-west3"
+REGION="europe-central2"
 ZONE="${REGION}-c"
 NETWORK="etcd-network"
 SUBNET="etcd-subnet"
@@ -292,6 +294,22 @@ cleanup() {
 
 main() {
   # Main script execution
+  if [ $# -eq 2 ]; then
+    LOWERCASE_ARG=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+    # Check if $2 is 'a', 'b', or 'c'
+    if [[ "$LOWERCASE_ARG" =~ ^(a|b|c)$ ]]; then
+      ZONE=${REGION}-${LOWERCASE_ARG}
+      echo "Use custom zone: ${ZONE}"
+    else
+      echo "Error: the [zone] parameter must be 'a', 'b', or 'c', instead of $2"
+      exit 1
+    fi
+  elif [ $# -gt 2 ]; then
+    echo "Error: too much parameters"
+  else
+    echo "Use default zone: ${ZONE}"
+  fi
+
   case "$1" in
   "single")
     confirm_gcloud_project
@@ -315,4 +333,4 @@ main() {
   esac
 }
 
-main "$1"
+main "$@"

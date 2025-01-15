@@ -2,3 +2,4 @@
 default.etcd/
 .vscode
 .idea
+infra/*.service

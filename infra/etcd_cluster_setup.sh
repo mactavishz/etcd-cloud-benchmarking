@@ -2,15 +2,28 @@
 
 set -euo pipefail
 
+# Usage functions
+print_usage() {
+  echo "Usage: $0 [command]"
+  echo "Commands:"
+  echo "  single  - Configure single node etcd"
+  echo "  three   - Configure three node etcd cluster"
+  echo "  five    - Configure five node etcd cluster"
+  echo "Arguments:"
+  echo "  zone    - Zone, in which the resources are created and deployed, use only 'a', 'b', or 'c'"
+}
+
 # Exit if no argument provided
 if [ $# -eq 0 ]; then
   echo "Error: No argument provided"
-  echo "Usage: $0 [single|three|five]"
+  print_usage
   exit 1
 fi
 
 # Common variables
-ZONE="europe-west3-c"
+REGION="europe-central2"
+ZONE="${REGION}-c"
+TMP_SERVICE_FILE="etcd.service"
 
 # Generate etcd systemd service template
 generate_etcd_service() {
@@ -19,7 +32,7 @@ generate_etcd_service() {
   local initial_cluster_state=$3
   local private_ip=$4
 
-  cat <<EOF >etcd.service
+  cat <<EOF >${TMP_SERVICE_FILE}
 [Unit]
 Description=etcd distributed key-value store
 Documentation=https://github.com/etcd-io/etcd
@@ -63,9 +76,10 @@ configure_single_node() {
   generate_etcd_service ${instance} "${instance}=http://${ip}:2380" "new" "${ip}"
 
   # Copy and enable service
-  gcloud compute scp etcd.service ${instance}:~/etcd.service --zone=${ZONE}
+  gcloud compute scp ${TMP_SERVICE_FILE} ${instance}:~/${TMP_SERVICE_FILE} --zone=${ZONE}
+  rm ${TMP_SERVICE_FILE}
   gcloud compute ssh ${instance} --zone=${ZONE} --command="
-        sudo mv etcd.service /etc/systemd/system/
+        sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
         sudo systemctl daemon-reload
         sudo systemctl enable etcd
         sudo systemctl start etcd
@@ -94,10 +108,11 @@ configure_three_node() {
     generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
 
     # Copy and enable service
-    gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
+    gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
+    rm ${TMP_SERVICE_FILE}
     gcloud compute ssh "${instance}" --zone=${ZONE} --command="
             sudo mkdir -p /var/lib/etcd
-            sudo mv etcd.service /etc/systemd/system/
+            sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable etcd
             sudo systemctl start etcd
@@ -127,10 +142,11 @@ configure_five_node() {
     generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
 
     # Copy and enable service
-    gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
+    gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
+    rm ${TMP_SERVICE_FILE}
     gcloud compute ssh "${instance}" --zone=${ZONE} --command="
             sudo mkdir -p /var/lib/etcd
-            sudo mv etcd.service /etc/systemd/system/
+            sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable etcd
             sudo systemctl start etcd
@@ -147,31 +163,48 @@ verify_cluster() {
     "
 }
 
-# Usage functions
-usage() {
-  echo "Usage: $0 [command]"
-  echo "Commands:"
-  echo "  single  - Configure single node etcd"
-  echo "  three   - Configure three node etcd cluster"
-  echo "  five    - Configure five node etcd cluster"
+main() {
+  # Main script execution
+  if [ $# -eq 2 ]; then
+    LOWERCASE_ARG=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+    # Check if $2 is 'a', 'b', or 'c'
+    if [[ "$LOWERCASE_ARG" =~ ^(a|b|c)$ ]]; then
+      ZONE=${REGION}-${LOWERCASE_ARG}
+      echo "Use custom zone: ${ZONE}"
+    else
+      echo "Error: the [zone] parameter must be 'a', 'b', or 'c', instead of $2"
+      exit 1
+    fi
+  elif [ $# -gt 2 ]; then
+    echo "Error: too much parameters"
+  else
+    echo "Use default zone: ${ZONE}"
+  fi
+
+  case "$1" in
+  "single")
+    configure_single_node
+    verify_cluster "etcd-single"
+    ;;
+  "three")
+    configure_three_node
+    verify_cluster "etcd-3-0"
+    verify_cluster "etcd-3-1"
+    verify_cluster "etcd-3-2"
+    ;;
+  "five")
+    configure_five_node
+    verify_cluster "etcd-5-0"
+    verify_cluster "etcd-5-1"
+    verify_cluster "etcd-5-2"
+    verify_cluster "etcd-5-3"
+    verify_cluster "etcd-5-4"
+    ;;
+  *)
+    print_usage
+    exit 1
+    ;;
+  esac
 }
 
-# Main script execution
-case "$1" in
-"single")
-  configure_single_node
-  verify_cluster "etcd-single"
-  ;;
-"three")
-  configure_three_node
-  verify_cluster "etcd-3-0"
-  ;;
-"five")
-  configure_five_node
-  verify_cluster "etcd-5-0"
-  ;;
-*)
-  usage
-  exit 1
-  ;;
-esac
+main "$@"
