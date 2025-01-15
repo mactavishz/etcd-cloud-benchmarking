@@ -4,9 +4,9 @@ set -euo pipefail
 
 # Exit if no argument provided
 if [ $# -eq 0 ]; then
-    echo "Error: No argument provided"
-    echo "Usage: $0 [single|three|five]"
-    exit 1
+  echo "Error: No argument provided"
+  echo "Usage: $0 [single|three|five]"
+  exit 1
 fi
 
 # Common variables
@@ -14,12 +14,12 @@ ZONE="europe-west3-c"
 
 # Generate etcd systemd service template
 generate_etcd_service() {
-    local name=$1
-    local initial_cluster=$2
-    local initial_cluster_state=$3
-    local private_ip=$4
+  local name=$1
+  local initial_cluster=$2
+  local initial_cluster_state=$3
+  local private_ip=$4
 
-    cat << EOF > etcd.service
+  cat <<EOF >etcd.service
 [Unit]
 Description=etcd distributed key-value store
 Documentation=https://github.com/etcd-io/etcd
@@ -48,23 +48,23 @@ EOF
 
 # Function to get internal IP of an instance
 get_internal_ip() {
-    local instance=$1
-    gcloud compute instances describe "${instance}" \
-        --zone=${ZONE} \
-        --format='get(networkInterfaces[0].networkIP)'
+  local instance=$1
+  gcloud compute instances describe "${instance}" \
+    --zone=${ZONE} \
+    --format='get(networkInterfaces[0].networkIP)'
 }
 
 # Function to configure a single node
 configure_single_node() {
-    local instance="etcd-single"
-    local ip=$(get_internal_ip ${instance})
+  local instance="etcd-single"
+  local ip=$(get_internal_ip ${instance})
 
-    # Generate systemd service file
-    generate_etcd_service ${instance} "${instance}=http://${ip}:2380" "new" "${ip}"
+  # Generate systemd service file
+  generate_etcd_service ${instance} "${instance}=http://${ip}:2380" "new" "${ip}"
 
-    # Copy and enable service
-    gcloud compute scp etcd.service ${instance}:~/etcd.service --zone=${ZONE}
-    gcloud compute ssh ${instance} --zone=${ZONE} --command="
+  # Copy and enable service
+  gcloud compute scp etcd.service ${instance}:~/etcd.service --zone=${ZONE}
+  gcloud compute ssh ${instance} --zone=${ZONE} --command="
         sudo mv etcd.service /etc/systemd/system/
         sudo systemctl daemon-reload
         sudo systemctl enable etcd
@@ -74,74 +74,74 @@ configure_single_node() {
 
 # Function to configure three node cluster
 configure_three_node() {
-    local cluster_nodes=""
-    local ips=()
+  local cluster_nodes=""
+  local ips=()
 
-    # Get IPs of all nodes
-    for i in {0..2}; do
-        local instance="etcd-3-${i}"
-        local ip=$(get_internal_ip "${instance}")
-        ips+=($ip)
-        if [ -n "$cluster_nodes" ]; then
-            cluster_nodes="${cluster_nodes},"
-        fi
-        cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
-    done
+  # Get IPs of all nodes
+  for i in {0..2}; do
+    local instance="etcd-3-${i}"
+    local ip=$(get_internal_ip "${instance}")
+    ips+=($ip)
+    if [ -n "$cluster_nodes" ]; then
+      cluster_nodes="${cluster_nodes},"
+    fi
+    cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
+  done
 
-    # Configure each node
-    for i in {0..2}; do
-        local instance="etcd-3-${i}"
-        generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+  # Configure each node
+  for i in {0..2}; do
+    local instance="etcd-3-${i}"
+    generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
 
-        # Copy and enable service
-        gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
-        gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+    # Copy and enable service
+    gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
+    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
             sudo mkdir -p /var/lib/etcd
             sudo mv etcd.service /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable etcd
             sudo systemctl start etcd
         "
-    done
+  done
 }
 
 # Function to configure five node cluster
 configure_five_node() {
-    local cluster_nodes=""
-    local ips=()
+  local cluster_nodes=""
+  local ips=()
 
-    # Get IPs of all nodes
-    for i in {0..4}; do
-        local instance="etcd-5-${i}"
-        local ip=$(get_internal_ip "${instance}")
-        ips+=($ip)
-        if [ -n "$cluster_nodes" ]; then
-            cluster_nodes="${cluster_nodes},"
-        fi
-        cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
-    done
+  # Get IPs of all nodes
+  for i in {0..4}; do
+    local instance="etcd-5-${i}"
+    local ip=$(get_internal_ip "${instance}")
+    ips+=($ip)
+    if [ -n "$cluster_nodes" ]; then
+      cluster_nodes="${cluster_nodes},"
+    fi
+    cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
+  done
 
-    # Configure each node
-    for i in {0..4}; do
-        local instance="etcd-5-${i}"
-        generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+  # Configure each node
+  for i in {0..4}; do
+    local instance="etcd-5-${i}"
+    generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
 
-        # Copy and enable service
-        gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
-        gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+    # Copy and enable service
+    gcloud compute scp etcd.service "${instance}":~/etcd.service --zone=${ZONE}
+    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
             sudo mkdir -p /var/lib/etcd
             sudo mv etcd.service /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable etcd
             sudo systemctl start etcd
         "
-    done
+  done
 }
 
 # Function to verify cluster health
 verify_cluster() {
-    local instance=$1
-    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+  local instance=$1
+  gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         ETCDCTL_API=3 etcdctl endpoint health --cluster
         ETCDCTL_API=3 etcdctl member list
     "
@@ -149,29 +149,29 @@ verify_cluster() {
 
 # Usage functions
 usage() {
-    echo "Usage: $0 [command]"
-    echo "Commands:"
-    echo "  single  - Configure single node etcd"
-    echo "  three   - Configure three node etcd cluster"
-    echo "  five    - Configure five node etcd cluster"
+  echo "Usage: $0 [command]"
+  echo "Commands:"
+  echo "  single  - Configure single node etcd"
+  echo "  three   - Configure three node etcd cluster"
+  echo "  five    - Configure five node etcd cluster"
 }
 
 # Main script execution
 case "$1" in
-    "single")
-        configure_single_node
-        verify_cluster "etcd-single"
-        ;;
-    "three")
-        configure_three_node
-        verify_cluster "etcd-3-0"
-        ;;
-    "five")
-        configure_five_node
-        verify_cluster "etcd-5-0"
-        ;;
-    *)
-        usage
-        exit 1
-        ;;
+"single")
+  configure_single_node
+  verify_cluster "etcd-single"
+  ;;
+"three")
+  configure_three_node
+  verify_cluster "etcd-3-0"
+  ;;
+"five")
+  configure_five_node
+  verify_cluster "etcd-5-0"
+  ;;
+*)
+  usage
+  exit 1
+  ;;
 esac

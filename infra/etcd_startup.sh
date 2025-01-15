@@ -2,9 +2,8 @@
 # Autostart services https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
 export DEBIAN_FRONTEND=noninteractive
 
-
 install_etcd() {
-# Install etcd
+  # Install etcd
   local ETCD_VER=v3.5.17
   local DOWNLOAD_URL=https://github.com/etcd-io/etcd/releases/download
   curl -L ${DOWNLOAD_URL}/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o etcd-${ETCD_VER}-linux-amd64.tar.gz
