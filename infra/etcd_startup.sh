@@ -10,7 +10,9 @@ install_etcd() {
   curl -L ${DOWNLOAD_URL}/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o etcd-${ETCD_VER}-linux-amd64.tar.gz
   tar xzvf etcd-${ETCD_VER}-linux-amd64.tar.gz
   cd etcd-${ETCD_VER}-linux-amd64 || exit
-  mv etcd etcdctl /usr/local/bin/
+  mv etcd etcdctl /usr/local/bin/ && cd ..
+  rm -rf etcd-${ETCD_VER}-linux-amd64
+  rm -rf etcd-${ETCD_VER}-linux-amd64.tar.gz
 }
 
 install_ops_agent() {

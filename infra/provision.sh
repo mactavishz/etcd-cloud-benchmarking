@@ -146,14 +146,14 @@ create_etcd_node() {
 # Create benchmark client machine
 create_benchmark_machine() {
     local name=$1
-    gcloud compute instances create benchmark-machine \
+    gcloud compute instances create "${name}" \
         --machine-type="${BENCHMARK_CLIENT_MACHINE_TYPE}" \
         --zone=${ZONE} \
         --network=${NETWORK} \
         --subnet=${SUBNET} \
         --image-family=${IMAGE_FAMILY} \
         --image-project=${IMAGE_PROJECT} \
-        --boot-disk-size=${BENCHMARK_DISK_SIZE} \
+        --boot-disk-size=20 \
         --boot-disk-type=pd-ssd \
         --metadata-from-file startup-script=benchmark_client_startup.sh \
         --tags=${BENCHMARK_CLIENT_TAG}
@@ -180,8 +180,8 @@ create_benchmark_machine() {
     # See https://cloud.google.com/compute/docs/disks/format-mount-disk-linux
     gcloud compute ssh "${name}" --zone=${ZONE} --command="
         sudo mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/sdb
-        sudo mkdir -p ~/benchmark-data
-        echo '/dev/sdb ~/benchmark-data ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
+        mkdir -p /home/${USER}/benchmark-data
+        echo '/dev/sdb /home/${USER}/benchmark-data ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
         sudo mount -a
         "
 }
@@ -259,7 +259,7 @@ cleanup() {
 
     echo "Deleting benchmark instance..."
     gcloud compute instances list \
-        --filter="tags.items=${ETCD_NODE_TAG} AND zone=${ZONE}" \
+        --filter="tags.items=${BENCHMARK_CLIENT_TAG} AND zone=${ZONE}" \
         --format="get(name)" | \
     while read -r instance; do
         echo "Deleting instance: $instance"
