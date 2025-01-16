@@ -393,6 +393,7 @@ configure_etcd_cluster() {
 
   local cluster_nodes=""
   local ips=()
+  local instances=()
 
   # Get IPs of all nodes
   for i in $(seq 0 $((node_count - 1))); do
@@ -402,6 +403,7 @@ configure_etcd_cluster() {
     else
       instance="${prefix}-${i}"
     fi
+    instances+=("$instance")
 
     local ip=$(get_internal_ip "${instance}")
     ips+=($ip)
@@ -412,41 +414,85 @@ configure_etcd_cluster() {
     cluster_nodes="${cluster_nodes}${instance}=http://${ip}:2380"
   done
 
+  # Generate and copy service files for all nodes first
+  echo "Generating and copying service files..."
   for i in $(seq 0 $((node_count - 1))); do
-    local instance
-    if [ $node_count -eq 1 ]; then
-      instance="${prefix}"
-    else
-      instance="${prefix}-${i}"
-    fi
-
+    local instance="${instances[$i]}"
     generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+
+    # Wait for startup script to finish before copying service file
     wait_for_startup_finish "${instance}"
 
-    # Copy and enable service
+    # Copy service file
+    echo "Copying service file to ${instance}..."
     gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
     rm ${TMP_SERVICE_FILE}
-    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
-            sudo mkdir -p ${ETCD_DATA_DIR}
-            sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
-            sudo systemctl daemon-reload
-            sudo systemctl enable etcd
-            sudo systemctl start etcd
-        "
   done
+
+  # Start all nodes in parallel
+  echo "Starting etcd services on all nodes..."
+  for i in $(seq 0 $((node_count - 1))); do
+    local instance="${instances[$i]}"
+    (
+      gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+        sudo mkdir -p ${ETCD_DATA_DIR}
+        sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
+        sudo systemctl daemon-reload
+        sudo systemctl enable etcd
+        sudo systemctl start etcd
+      " &
+    )
+  done
+
+  # Wait for all background processes to complete
+  wait
+
+  # Give the cluster some time to establish connections
+  echo "Waiting for cluster to stabilize..."
+  sleep 20
 
   # Verify cluster health for all nodes
   for i in $(seq 0 $((node_count - 1))); do
-    local instance
-    if [ $node_count -eq 1 ]; then
-      instance="${prefix}"
-    else
-      instance="${prefix}-${i}"
-    fi
-
+    local instance="${instances[$i]}"
     echo "Verifying health of node: ${instance}"
     verify_cluster "${instance}"
   done
+
+  # for i in $(seq 0 $((node_count - 1))); do
+  #   local instance
+  #   if [ $node_count -eq 1 ]; then
+  #     instance="${prefix}"
+  #   else
+  #     instance="${prefix}-${i}"
+  #   fi
+  #
+  #   generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+  #   wait_for_startup_finish "${instance}"
+  #
+  #   # Copy and enable service
+  #   gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
+  #   rm ${TMP_SERVICE_FILE}
+  #   gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+  #           sudo mkdir -p ${ETCD_DATA_DIR}
+  #           sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
+  #           sudo systemctl daemon-reload
+  #           sudo systemctl enable etcd
+  #           sudo systemctl start etcd
+  #       "
+  # done
+  #
+  # # Verify cluster health for all nodes
+  # for i in $(seq 0 $((node_count - 1))); do
+  #   local instance
+  #   if [ $node_count -eq 1 ]; then
+  #     instance="${prefix}"
+  #   else
+  #     instance="${prefix}-${i}"
+  #   fi
+  #
+  #   echo "Verifying health of node: ${instance}"
+  #   verify_cluster "${instance}"
+  # done
 }
 
 # Function to verify cluster health
