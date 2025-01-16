@@ -45,6 +45,8 @@ IMAGE_PROJECT="ubuntu-os-cloud"
 ETCD_NODE_TAG="etcd-node"
 BENCHMARK_CLIENT_TAG="benchmark-client"
 STARTUP_COMPLETED_MARKER="/tmp/startup_completed"
+ETCD_PD_SSD_MOUNT_POINT="/var/lib/etcd"
+ETCD_DATA_DIR="/var/lib/etcd/data"
 
 # Benchmark client configurations
 BENCHMARK_CLIENT_GRPC_PORT="50051"
@@ -210,7 +212,7 @@ create_etcd_node() {
     --tags=${ETCD_NODE_TAG}
 
   # Create and mount data disk with systemd-network owner
-  create_and_mount_disk "${name}" "${ETCD_DISK_SIZE}" "/var/lib/etcd" "systemd-network"
+  create_and_mount_disk "${name}" "${ETCD_DISK_SIZE}" "${ETCD_PD_SSD_MOUNT_POINT}" "root"
 }
 
 # Create benchmark client machine
@@ -350,16 +352,14 @@ After=network.target
 Type=notify
 ExecStart=/usr/local/bin/etcd \\
   --name=${name} \\
-  --data-dir=/var/lib/etcd \\
+  --data-dir=${ETCD_DATA_DIR} \\
   --initial-advertise-peer-urls=http://${private_ip}:2380 \\
   --listen-peer-urls=http://${private_ip}:2380 \\
   --listen-client-urls=http://${private_ip}:2379,http://127.0.0.1:2379 \\
   --advertise-client-urls=http://${private_ip}:2379 \\
   --initial-cluster-token=etcd-cluster \\
   --initial-cluster=${initial_cluster} \\
-  --initial-cluster-state=${initial_cluster_state} \\
-  --auto-tls \\
-  --peer-auto-tls
+  --initial-cluster-state=${initial_cluster_state}
 Restart=always
 RestartSec=10s
 LimitNOFILE=40000
@@ -427,6 +427,7 @@ configure_etcd_cluster() {
     gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
     rm ${TMP_SERVICE_FILE}
     gcloud compute ssh "${instance}" --zone=${ZONE} --command="
+            sudo mkdir -p ${ETCD_DATA_DIR}
             sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable etcd
