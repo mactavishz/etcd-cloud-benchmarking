@@ -183,7 +183,8 @@ create_and_mount_disk() {
   # Add owner change if specified
   if [[ -n "${owner}" ]]; then
     mount_commands+="
-    sudo chown -R ${owner}:${owner} ${mount_point}"
+    owner=\$(eval echo ${owner})
+    sudo chown -R \${owner}:\${owner} \${mount_dir}"
   fi
 
   # Execute commands
@@ -227,7 +228,7 @@ create_benchmark_machine() {
     --metadata-from-file startup-script=benchmark_client_startup.sh \
     --tags=${BENCHMARK_CLIENT_TAG}
 
-  create_and_mount_disk "${name}" "${BENCHMARK_DISK_SIZE}" "/home/\${USER}/benchmark-data"
+  create_and_mount_disk "${name}" "${BENCHMARK_DISK_SIZE}" "/home/\${USER}/benchmark-data" "\${USER}"
 
   # Wait for instance to finish startup script
   if ! wait_for_startup_finish "${name}"; then
