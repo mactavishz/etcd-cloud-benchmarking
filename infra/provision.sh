@@ -457,42 +457,6 @@ configure_etcd_cluster() {
     echo "Verifying health of node: ${instance}"
     verify_cluster "${instance}"
   done
-
-  # for i in $(seq 0 $((node_count - 1))); do
-  #   local instance
-  #   if [ $node_count -eq 1 ]; then
-  #     instance="${prefix}"
-  #   else
-  #     instance="${prefix}-${i}"
-  #   fi
-  #
-  #   generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
-  #   wait_for_startup_finish "${instance}"
-  #
-  #   # Copy and enable service
-  #   gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
-  #   rm ${TMP_SERVICE_FILE}
-  #   gcloud compute ssh "${instance}" --zone=${ZONE} --command="
-  #           sudo mkdir -p ${ETCD_DATA_DIR}
-  #           sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
-  #           sudo systemctl daemon-reload
-  #           sudo systemctl enable etcd
-  #           sudo systemctl start etcd
-  #       "
-  # done
-  #
-  # # Verify cluster health for all nodes
-  # for i in $(seq 0 $((node_count - 1))); do
-  #   local instance
-  #   if [ $node_count -eq 1 ]; then
-  #     instance="${prefix}"
-  #   else
-  #     instance="${prefix}-${i}"
-  #   fi
-  #
-  #   echo "Verifying health of node: ${instance}"
-  #   verify_cluster "${instance}"
-  # done
 }
 
 # Function to verify cluster health
