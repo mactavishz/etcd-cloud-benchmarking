@@ -29,12 +29,24 @@ install_golang() {
   sudo chown -R root:root ./go
   sudo mv -v go /usr/local
   sudo rm -rf "go${GO_VER}.linux-${ARCH}.tar.gz"
+  # Add to both /etc/profile and /etc/bash.bashrc for both interactive and non-interactive shells
+  echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee -a /etc/profile
   echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee -a /etc/bash.bashrc
-  source /etc/bash.bashrc
-  go version
+  # Create a file in /etc/profile.d/ for system-wide PATH
+  echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/golang.sh
+  sudo chmod +x /etc/profile.d/golang.sh
+  # Create symlink to ensure the binary is in standard PATH
+  sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+  sudo ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 }
 
-sudo apt update && sudo apt upgrade && sudo apt-get install -y git curl
+mark_startup_finish() {
+  touch /tmp/startup_completed
+}
+
+sudo apt update && sudo apt upgrade -y
+sudo apt-get install -y git curl make
 install_etcdctl
 install_golang
 install_ops_agent
+mark_startup_finish

@@ -44,9 +44,11 @@ IMAGE_FAMILY="ubuntu-2204-lts"
 IMAGE_PROJECT="ubuntu-os-cloud"
 ETCD_NODE_TAG="etcd-node"
 BENCHMARK_CLIENT_TAG="benchmark-client"
+STARTUP_COMPLETED_MARKER="/tmp/startup_completed"
 
 # Benchmark client configurations
 BENCHMARK_CLIENT_GRPC_PORT="50051"
+GIT_REPO_URL="https://git.tu-berlin.de/mactavishz/csb-project-ws2425"
 
 confirm_gcloud_project() {
   echo "Your current project is: ${PROJECT_ID}"
@@ -100,6 +102,52 @@ setup_network() {
     --source-ranges=0.0.0.0/0
 }
 
+# Function to wait for instance to be ready for SSH
+wait_for_ssh() {
+  local instance_name=$1
+  local max_attempts=20
+  local attempt=1
+  local wait_time=10
+
+  echo "Waiting for SSH to become available on ${instance_name}..."
+
+  while [ $attempt -le $max_attempts ]; do
+    if gcloud compute ssh "${instance_name}" --zone="${ZONE}" --command="echo 'SSH connection successful'" &>/dev/null; then
+      echo "SSH is now available on ${instance_name}"
+      return 0
+    fi
+
+    echo "Attempt ${attempt}/${max_attempts}: SSH not yet available. Waiting ${wait_time} seconds..."
+    sleep $wait_time
+    attempt=$((attempt + 1))
+  done
+
+  echo "Error: Failed to establish SSH connection after ${max_attempts} attempts"
+  return 1
+}
+
+wait_for_startup_finish() {
+  local instance_name=$1
+  local max_attempts=20
+  local attempt=1
+  local wait_time=10
+
+  # Wait for startup script to complete
+  echo "Waiting for startup script to complete on ${instance_name}..."
+  while [ $attempt -le $max_attempts ]; do
+    if gcloud compute ssh "${instance_name}" --zone="${ZONE}" --command="test -f ${STARTUP_COMPLETED_MARKER}"; then
+      echo "Startup script completed successfully on ${instance_name}"
+      return 0
+    fi
+    echo "Attempt ${attempt}/${max_attempts}: startup script still not finish running, waiting for ${wait_time} seconds..."
+    sleep $wait_time
+    attempt=$((attempt + 1))
+  done
+
+  echo "Error: Failed to complete startup script after ${max_attempts} attempts"
+  return 1
+}
+
 create_and_mount_disk() {
   local instance_name=$1
   local disk_size=$2
@@ -126,8 +174,10 @@ create_and_mount_disk() {
   # See https://cloud.google.com/compute/docs/disks/format-mount-disk-linux
   local mount_commands="
     sudo mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/sdb
-    sudo mkdir -p ${mount_point}
-    echo '/dev/sdb ${mount_point} ext4 discard,defaults,nofail 0 2' | sudo tee -a /etc/fstab
+    mount_dir=\$(eval echo ${mount_point})
+    echo \${mount_dir}
+    sudo mkdir -p \${mount_dir}
+    echo /dev/sdb \${mount_dir} ext4 discard,defaults,nofail 0 2 | sudo tee -a /etc/fstab
     sudo mount -a"
 
   # Add owner change if specified
@@ -177,7 +227,22 @@ create_benchmark_machine() {
     --metadata-from-file startup-script=benchmark_client_startup.sh \
     --tags=${BENCHMARK_CLIENT_TAG}
 
-  create_and_mount_disk "${name}" "${BENCHMARK_DISK_SIZE}" "/home/${USER}/benchmark-data"
+  create_and_mount_disk "${name}" "${BENCHMARK_DISK_SIZE}" "/home/\${USER}/benchmark-data"
+
+  # Wait for instance to finish startup script
+  if ! wait_for_startup_finish "${name}"; then
+    echo "Failed to observe startup script finishing on ${name}. Exiting..."
+    exit 1
+  fi
+
+  # Clone the benchmark client repository and build the client
+  gcloud compute ssh "${name}" --zone=${ZONE} --command="
+  git clone ${GIT_REPO_URL} benchmark-repo
+  cd benchmark-repo
+  make client
+  sudo mv benchclient /usr/local/bin/
+  benchclient --help
+  "
 }
 
 # Deploy etcd cluster with specified number of nodes
@@ -208,30 +273,6 @@ deploy_cluster() {
   fi
 
   create_benchmark_machine "benchmark-client"
-}
-
-# Function to wait for instance to be ready for SSH
-wait_for_ssh() {
-  local instance_name=$1
-  local max_attempts=30
-  local attempt=1
-  local wait_time=10
-
-  echo "Waiting for SSH to become available on ${instance_name}..."
-
-  while [ $attempt -le $max_attempts ]; do
-    if gcloud compute ssh "${instance_name}" --zone="${ZONE}" --command="echo 'SSH connection successful'" &>/dev/null; then
-      echo "SSH is now available on ${instance_name}"
-      return 0
-    fi
-
-    echo "Attempt ${attempt}/${max_attempts}: SSH not yet available. Waiting ${wait_time} seconds..."
-    sleep $wait_time
-    attempt=$((attempt + 1))
-  done
-
-  echo "Error: Failed to establish SSH connection after ${max_attempts} attempts"
-  return 1
 }
 
 # Cleanup resources
@@ -377,6 +418,7 @@ configure_etcd_cluster() {
     fi
 
     generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+    wait_for_startup_finish "${instance}"
 
     # Copy and enable service
     gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}

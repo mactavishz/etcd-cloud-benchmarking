@@ -19,6 +19,11 @@ install_ops_agent() {
   sudo bash add-google-cloud-ops-agent-repo.sh --also-install
 }
 
+mark_startup_finish() {
+  touch /tmp/startup_completed
+}
+
 sudo apt update && sudo apt upgrade && sudo apt-get install -y git curl
 install_etcd
 install_ops_agent
+mark_startup_finish
