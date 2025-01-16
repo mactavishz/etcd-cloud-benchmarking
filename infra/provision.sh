@@ -48,7 +48,7 @@ STARTUP_COMPLETED_MARKER="/tmp/startup_completed"
 
 # Benchmark client configurations
 BENCHMARK_CLIENT_GRPC_PORT="50051"
-GIT_REPO_URL="https://git.tu-berlin.de/mactavishz/csb-project-ws2425"
+GIT_REPO_URL="https://git.tu-berlin.de/mactavishz/csb-project-ws2425.git"
 
 confirm_gcloud_project() {
   echo "Your current project is: ${PROJECT_ID}"
@@ -351,13 +351,15 @@ Type=notify
 ExecStart=/usr/local/bin/etcd \\
   --name=${name} \\
   --data-dir=/var/lib/etcd \\
+  --initial-advertise-peer-urls=http://${private_ip}:2380 \\
   --listen-peer-urls=http://${private_ip}:2380 \\
   --listen-client-urls=http://${private_ip}:2379,http://127.0.0.1:2379 \\
-  --initial-advertise-peer-urls=http://${private_ip}:2380 \\
   --advertise-client-urls=http://${private_ip}:2379 \\
   --initial-cluster-token=etcd-cluster \\
   --initial-cluster=${initial_cluster} \\
-  --initial-cluster-state=${initial_cluster_state}
+  --initial-cluster-state=${initial_cluster_state} \\
+  --auto-tls \\
+  --peer-auto-tls
 Restart=always
 RestartSec=10s
 LimitNOFILE=40000
@@ -442,10 +444,7 @@ configure_etcd_cluster() {
     fi
 
     echo "Verifying health of node: ${instance}"
-    gcloud compute ssh "${instance}" --zone=${ZONE} --command="
-            ETCDCTL_API=3 etcdctl endpoint health --cluster
-            ETCDCTL_API=3 etcdctl member list
-        "
+    verify_cluster "${instance}"
   done
 }
 
@@ -453,8 +452,8 @@ configure_etcd_cluster() {
 verify_cluster() {
   local instance=$1
   gcloud compute ssh "${instance}" --zone=${ZONE} --command="
-        ETCDCTL_API=3 etcdctl endpoint health --cluster
-        ETCDCTL_API=3 etcdctl member list
+        ETCDCTL_API=3 etcdctl endpoint health -w table
+        ETCDCTL_API=3 etcdctl member list -w table
     "
 }
 
