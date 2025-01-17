@@ -11,10 +11,10 @@ fi
 print_usage() {
   echo "Usage: $0 [command] [zone]"
   echo "Commands:"
-  echo "  single  - Deploy single node etcd cluster with benchmark machine"
-  echo "  three   - Deploy three node etcd cluster with benchmark machine"
-  echo "  five    - Deploy five node etcd cluster with benchmark machine"
-  echo "  cleanup - Cleanup all resources"
+  echo "  deploy-1 - Deploy single node etcd cluster with benchmark machine"
+  echo "  deploy-3 - Deploy three node etcd cluster with benchmark machine"
+  echo "  deloy-5  - Deploy five node etcd cluster with benchmark machine"
+  echo "  cleanup  - Cleanup all resources"
   echo "Arguments:"
   echo "  zone    - Zone, in which the resources are created and deployed, use only 'a', 'b', or 'c'"
 }
@@ -50,6 +50,7 @@ ETCD_DATA_DIR="/var/lib/etcd/data"
 
 # Benchmark client configurations
 BENCHMARK_CLIENT_GRPC_PORT="50051"
+BENCHMARK_REPO_DIR="benchmark-repo"
 GIT_REPO_URL="https://git.tu-berlin.de/mactavishz/csb-project-ws2425.git"
 
 confirm_gcloud_project() {
@@ -241,7 +242,7 @@ create_benchmark_machine() {
   # Clone the benchmark client repository and build the client
   gcloud compute ssh "${name}" --zone=${ZONE} --command="
   git clone ${GIT_REPO_URL} benchmark-repo
-  cd benchmark-repo
+  cd ${BENCHMARK_REPO_DIR}
   make client
   sudo mv benchclient /usr/local/bin/
   benchclient --help
@@ -471,10 +472,11 @@ verify_cluster() {
 main() {
   # Main script execution
   if [ $# -eq 2 ]; then
-    LOWERCASE_ARG=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+    local lowercase_arg=$2
+    lowercase_arg=$(echo "$2" | tr '[:upper:]' '[:lower:]')
     # Check if $2 is 'a', 'b', or 'c'
-    if [[ "$LOWERCASE_ARG" =~ ^(a|b|c)$ ]]; then
-      ZONE=${REGION}-${LOWERCASE_ARG}
+    if [[ "$lowercase_arg" =~ ^(a|b|c)$ ]]; then
+      ZONE=${REGION}-${lowercase_arg}
       echo "Use custom zone: ${ZONE}"
     else
       echo "Error: the [zone] parameter must be 'a', 'b', or 'c', instead of $2"
@@ -487,17 +489,17 @@ main() {
   fi
 
   case "$1" in
-  "single")
+  "deploy-1")
     confirm_gcloud_project
     deploy_cluster 1
     configure_etcd_cluster 1
     ;;
-  "three")
+  "deploy-3")
     confirm_gcloud_project
     deploy_cluster 3
     configure_etcd_cluster 3
     ;;
-  "five")
+  "deploy-5")
     confirm_gcloud_project
     deploy_cluster 5
     configure_etcd_cluster 5
