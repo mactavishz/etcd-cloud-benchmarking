@@ -42,9 +42,12 @@ declare -a LOCK_WORKLOAD_TYPES=(
 
 # machine related variables
 ETCD_DATA_DIR="/var/lib/etcd/data"
+ETCD_CLIENT_PORT="2379"
 BENCHMARK_CLIENT_INSTANCE="benchmark-client"
 SYSTEM_SERVICE_NAME="etcd.service"
-BENCHMARK_REPO_DIR="benchmark-data"
+BENCHMARK_CONTROL_BIN="benchctl"
+BENCHMARK_CONFIG_TEMPLATE_DIR="./templates"
+BENCHMARK_DATA_DIR="benchmark-data"
 BENCHMARK_CLIENT_GRPC_PORT="50051"
 
 # Function to verify cluster health
@@ -66,15 +69,24 @@ get_instance_public_ip() {
   gcloud compute instances describe "$instance_name" --zone="$ZONE" --format="value(networkInterfaces[0].accessConfigs[0].natIP)"
 }
 
+start_benchmark_client_service() {
+  gcloud compute ssh "${BENCHMARK_CLIENT_INSTANCE}" --zone="$ZONE" --command="
+  cd $BENCHMARK_DATA_DIR
+  rm -rf *
+  echo \$(pwd)
+  tmux new-session -d -s benchclient 'benchclient -p $BENCHMARK_CLIENT_GRPC_PORT; exit'
+  "
+}
+
 download_benchmark_client_output_files() {
-  local remote_dir=$1
-  local local_dir=$2
-  gcloud compute scp --zone="$ZONE" --recurse "${BENCHMARK_CLIENT_INSTANCE}":"$remote_dir" "$local_dir"
+  local local_dir=$1
+  gcloud compute scp --zone="$ZONE" --recurse "${BENCHMARK_CLIENT_INSTANCE}":"$BENCHMARK_DATA_DIR/*" "$local_dir"
 }
 
 cleanup_benchmark_client_output_files() {
-  local remote_dir=$1
-  gcloud compute ssh "${BENCHMARK_CLIENT_INSTANCE}" --zone="$ZONE" --command="rm -rf $remote_dir/{*,.*}"
+  gcloud compute ssh "${BENCHMARK_CLIENT_INSTANCE}" --zone="$ZONE" --command="
+  rm -rf $BENCHMARK_DATA_DIR/*
+  "
 }
 
 reset_all_etcd_nodes() {
@@ -82,7 +94,7 @@ reset_all_etcd_nodes() {
   local node_count=$NUM_NODES
   local command="
   sudo systemctl stop $SYSTEM_SERVICE_NAME
-  sudo rm -rf $ETCD_DATA_DIR/{*,.*}
+  sudo rm -rf $ETCD_DATA_DIR/*
   "
   case $node_count in
   1) prefix="etcd-single" ;;
@@ -149,8 +161,18 @@ run_benchmark() {
   echo "  - Output directory: $OUT_DIR"
   echo "  - Compress: $COMPRESS"
 
+  # check if the binary exists
+  if [ ! -x "$(command -v $BENCHMARK_CONTROL_BIN)" ]; then
+    echo "Error: $BENCHMARK_CONTROL_BIN binary not found, please build the binary first, check the README for more information"
+    exit 1
+  fi
+
   local node_count=$NUM_NODES
   local prefix="etcd"
+  local config_file="$BENCHMARK_CONFIG_TEMPLATE_DIR/$SCENARIO.json"
+  local instances=()
+  local endpoints=""
+  local benchmark_client_pubic_ip=$(get_instance_public_ip "${BENCHMARK_CLIENT_INSTANCE}")
 
   # Set the appropriate instance prefix based on node count
   case $node_count in
@@ -158,6 +180,61 @@ run_benchmark() {
   3) prefix="etcd-3" ;;
   5) prefix="etcd-5" ;;
   esac
+
+  # loop through the workloads to benchmark
+  for workload in "${WORKLOAD_TYPES[@]}"; do
+    echo "Running benchmark for workload type: $workload"
+    local output_dir="$OUT_DIR/$workload"
+    mkdir -p "$output_dir"
+    # init the benchmark config
+    $BENCHMARK_CONTROL_BIN config init
+    # load the benchmark template config file
+    $BENCHMARK_CONTROL_BIN config load-file "$config_file"
+    # print the benchmark config
+    echo "Current benchmark config:"
+    $BENCHMARK_CONTROL_BIN config list
+
+    # get the instances and endpoints
+    for i in $(seq 0 $((node_count - 1))); do
+      local instance
+      if [ $node_count -eq 1 ]; then
+        instance="${prefix}"
+      else
+        instance="${prefix}-${i}"
+      fi
+      instances+=("$instance")
+
+      local ip=$(get_instance_private_ip "${instance}")
+
+      if [ -n "$endpoints" ]; then
+        endpoints="${endpoints},"
+      fi
+      endpoints="${endpoints}${ip}:${ETCD_CLIENT_PORT}"
+    done
+
+    # set the endpoints in the benchmark config
+    echo "Current etcd cluster endpoints: $endpoints"
+    $BENCHMARK_CONTROL_BIN config set endpoints="$endpoints"
+
+    # start the benchmark client service
+    echo "Starting benchmark client service..."
+    start_benchmark_client_service
+
+    # run the benchmark
+    $BENCHMARK_CONTROL_BIN run "$benchmark_client_pubic_ip:$BENCHMARK_CLIENT_GRPC_PORT"
+
+    # download the benchmark client output files
+    download_benchmark_client_output_files "$output_dir"
+
+    # cleanup the benchmark client output files
+    cleanup_benchmark_client_output_files
+
+    # reset all etcd nodes
+    reset_all_etcd_nodes
+
+    # restart all etcd nodes
+    restart_all_etcd_nodes
+  done
 }
 
 main() {
