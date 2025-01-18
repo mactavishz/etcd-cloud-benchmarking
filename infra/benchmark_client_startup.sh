@@ -45,7 +45,7 @@ mark_startup_finish() {
 }
 
 sudo apt update && sudo apt upgrade -y
-sudo apt-get install -y git curl make
+sudo apt-get install -y git curl make tmux
 install_etcdctl
 install_golang
 install_ops_agent
