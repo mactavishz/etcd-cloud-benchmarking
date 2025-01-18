@@ -37,7 +37,10 @@ TMP_SERVICE_FILE="etcd.service"
 
 # Machine configurations
 ETCD_MACHINE_TYPE="n1-standard-2"
+# used for 1-node and 3-node cluster benchmarking
 BENCHMARK_CLIENT_MACHINE_TYPE="n1-standard-4"
+# used only for 5-node cluster benchmarking
+BENCHMARK_CLIENT_MACHINE_TYPE_XL="n1-standard-8"
 ETCD_DISK_SIZE="50"
 BENCHMARK_DISK_SIZE="30"
 IMAGE_FAMILY="ubuntu-2204-lts"
@@ -197,11 +200,11 @@ create_and_mount_disk() {
 # Create etcd cluster nodes
 create_etcd_node() {
   local name=$1
-  local index=$2
+  local machine_type=$2
 
   echo "Creating etcd node, instance name: ${name}..."
   gcloud compute instances create "${name}" \
-    --machine-type=${ETCD_MACHINE_TYPE} \
+    --machine-type=${machine_type} \
     --zone=${ZONE} \
     --network=${NETWORK} \
     --subnet=${SUBNET} \
@@ -219,8 +222,9 @@ create_etcd_node() {
 # Create benchmark client machine
 create_benchmark_machine() {
   local name=$1
+  local machine_type=$2
   gcloud compute instances create "${name}" \
-    --machine-type="${BENCHMARK_CLIENT_MACHINE_TYPE}" \
+    --machine-type="${machine_type}" \
     --zone=${ZONE} \
     --network=${NETWORK} \
     --subnet=${SUBNET} \
@@ -269,14 +273,19 @@ deploy_cluster() {
 
   # Create etcd nodes
   if [ $node_count -eq 1 ]; then
-    create_etcd_node "${prefix}" 0
+    create_etcd_node "${prefix}" "${ETCD_MACHINE_TYPE}"
   else
     for i in $(seq 0 $((node_count - 1))); do
-      create_etcd_node "${prefix}-${i}" "$i"
+      create_etcd_node "${prefix}-${i}" "${ETCD_MACHINE_TYPE}"
     done
   fi
 
-  create_benchmark_machine "benchmark-client"
+  # use larger machine type for 5-node cluster
+  if [ $node_count -eq 5 ]; then
+    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE_XL}"
+  else
+    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE}"
+  fi
 }
 
 # Cleanup resources
