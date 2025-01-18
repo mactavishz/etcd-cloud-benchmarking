@@ -143,6 +143,7 @@ func load_db(s *grpcserver.BenchmarkServiceServer) {
 
 	var wg sync.WaitGroup
 
+	logger.Println("Loading data into the database ...")
 	// Start workers
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
