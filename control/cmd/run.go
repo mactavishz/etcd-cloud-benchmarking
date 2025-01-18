@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 var RunCmd = &cobra.Command{
@@ -45,7 +46,12 @@ func runBenchmark(clientAddr string) error {
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(grpc.ConnectParams{
-			MinConnectTimeout: 15 * time.Second,
+			MinConnectTimeout: 30 * time.Second,
+		}),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second, // send pings every 30 seconds if there is no activity
+			Timeout:             60 * time.Second, // wait 60 seconds for ping responses
+			PermitWithoutStream: true,             // allow pings even without active streams
 		}),
 	}
 

@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 var logger *lg.Logger
@@ -60,7 +61,23 @@ func main() {
 		exit(1)
 	}
 
-	gServer := grpc.NewServer()
+	// Define keepalive server parameters
+	kasp := keepalive.ServerParameters{
+		Time:    30 * time.Second, // Ping the client if it is idle for 30 seconds to ensure the connection is still active
+		Timeout: 60 * time.Second, // Wait 60 second for the ping ack before assuming the connection is dead
+	}
+
+	// Define keepalive enforcement policy
+	kaep := keepalive.EnforcementPolicy{
+		MinTime:             5 * time.Second, // If a client pings more than once every 5 seconds, terminate the connection
+		PermitWithoutStream: true,            // Allow pings even when there are no active streams
+	}
+	serverOpts := []grpc.ServerOption{
+		grpc.KeepaliveParams(kasp),
+		grpc.KeepaliveEnforcementPolicy(kaep),
+	}
+
+	gServer := grpc.NewServer(serverOpts...)
 	benchmarkServiceServer := grpcserver.NewBenchmarkServiceServer(gServer, logger, termChan)
 	pb.RegisterBenchmarkServiceServer(gServer, benchmarkServiceServer)
 	go waitUntilReady(benchmarkServiceServer, readyChan)
