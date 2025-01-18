@@ -119,9 +119,11 @@ func load_db(s *grpcserver.BenchmarkServiceServer) {
 	ctlConfig := s.GetConfig()
 	rg := rand.New(rand.NewSource(ctlConfig.Seed))
 	dataGenerator := dg.NewGenerator(rg)
+	s.SendBenchmarkStatus("Generating synthetic data ...")
 	data, err := dataGenerator.GenerateData(ctlConfig.NumKeys, ctlConfig.KeySize, ctlConfig.ValueSize)
 
 	logger.Println("Number of key-value paris generated: ", len(data))
+	s.SendBenchmarkStatus(fmt.Sprintf("Number of key-value pairs generated: %d", len(data)))
 
 	if ctlConfig.NumKeys != len(data) {
 		logger.Printf("Failed to generate the required number of key-value pairs due to collision: %d\n", ctlConfig.NumKeys)
@@ -144,6 +146,7 @@ func load_db(s *grpcserver.BenchmarkServiceServer) {
 	var wg sync.WaitGroup
 
 	logger.Println("Loading data into the database ...")
+	s.SendBenchmarkStatus("Loading data into the database")
 	// Start workers
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
