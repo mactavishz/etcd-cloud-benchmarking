@@ -240,7 +240,7 @@ run_benchmark() {
     restart_all_etcd_nodes
 
     # only sleep if there are more workloads to run
-    if [ "$workload" != "${WORKLOAD_TYPES[-1]}" ]; then
+    if [ "$workload" != "${WORKLOAD_TYPES[${#WORKLOAD_TYPES[@]} - 1]}" ]; then
       echo "Sleeping for 5 minutes before running the next workload..."
       sleep 300
     fi
