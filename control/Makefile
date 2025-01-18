@@ -24,5 +24,6 @@ run: all
 	../$(BIN) $(RUN_ARGS)
 
 clean:
-	rm -f ../$(BIN)
+	rm -f $(BUILD)/$(BIN)
+	rm -f $(GOPATH)/bin/$(BIN)
 	rm -f *.log

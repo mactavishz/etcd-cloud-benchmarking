@@ -11,7 +11,8 @@ run: all
 	../$(BIN)
 
 clean:
-	rm -f ../$(BIN)
+	rm -f $(BUILD)/$(BIN)
+	rm -f $(GOPATH)/bin/$(BIN)
 	rm -f *metrics.csv
 	rm -f keys.txt
 	rm -f *.log

@@ -1,6 +1,7 @@
 SUBDIR_CLIENT := client
 SUBDIR_CONTROL := control
 SUBDIR_API := api
+BUILD_DIR := ./bin
 DEFAULT_ETCD_DIR := ./default.etcd
 MODULES := ./client ./control ./data-generator
 MODULE_ROOT_NAME := csb
@@ -10,6 +11,10 @@ MODULE_ROOT_NAME := csb
 all:
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CONTROL) all
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CLIENT) all
+
+bin: all
+	# copy the binaries to the $GOPATH/bin
+	cp $(BUILD_DIR)/* $(GOPATH)/bin
 
 client:
 	@$(MAKE) --no-print-directory -C $(SUBDIR_CLIENT) all
