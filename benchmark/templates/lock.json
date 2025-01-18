@@ -1,0 +1,17 @@
+{
+  "seed": 2340474740911481616,
+  "num_keys": 1000000,
+  "key_size": 16,
+  "value_size": 128,
+  "endpoints": [],
+  "warmup_duration": "30s",
+  "step_duration": "15s",
+  "total_duration": "1m0s",
+  "initial_clients": 5,
+  "client_step_size": 5,
+  "max_clients": 100,
+  "max_wait_time": "1s",
+  "workload_type": "lock-only",
+  "scenario": "lock-service",
+  "metrics_file": "metrics.csv"
+}

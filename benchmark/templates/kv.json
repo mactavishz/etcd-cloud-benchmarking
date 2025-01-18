@@ -1,0 +1,17 @@
+{
+  "seed": 2340474740911481616,
+  "num_keys": 1000000,
+  "key_size": 16,
+  "value_size": 128,
+  "endpoints": [],
+  "warmup_duration": "15s",
+  "step_duration": "5s",
+  "total_duration": "1m0s",
+  "initial_clients": 10,
+  "client_step_size": 10,
+  "max_clients": 100,
+  "max_wait_time": "1s",
+  "workload_type": "read-only",
+  "scenario": "kv-store",
+  "metrics_file": "metrics.csv"
+}
