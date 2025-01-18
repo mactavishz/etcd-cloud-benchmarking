@@ -15,8 +15,7 @@ print_usage() {
   echo "  -z  --zone <zone>         The GCP zone in which the instances are deployed, available options: a, b, c. Default: c"
   echo "  -s, --scenario <name>     The benchmark scenario name to run, available options: kv, lock. Default: kv"
   echo "  -w  --workload <name>     The workload type in kv/lock scenario to run, available options for scenario kv: read-only, read-heavy, update-heavy, available options for scenario lock: lock-only, lock-mixed-read, lock-mixed-write, lock-contention. Multiple values are provided with commas in between, or all can be used for sepcifying all workloads. Default: all"
-  echo "  -d  --out_dir <path>       The output directory for the benchmark results, can be relative or absolute path. Default: results"
-  echo "  -c  --compress             Compress the reports folder after the test"
+  echo "  -d  --out_dir <path>      The output directory for the benchmark results, can be relative or absolute path. Default: results"
   exit 0
 }
 
@@ -26,7 +25,6 @@ ZONE="${REGION}-c"
 SCENARIO="kv"
 NUM_NODES=1
 OUT_DIR="results"
-COMPRESS=false
 declare -a WORKLOAD_TYPES=()
 declare -a KV_WORKLOAD_TYPES=(
   "read-only"
@@ -159,7 +157,6 @@ run_benchmark() {
   echo "  - Scenario: $SCENARIO"
   echo "  - Workloads: ${WORKLOAD_TYPES[*]}"
   echo "  - Output directory: $OUT_DIR"
-  echo "  - Compress: $COMPRESS"
 
   # check if the binary exists
   if [ ! -x "$(command -v $BENCHMARK_CONTROL_BIN)" ]; then
@@ -190,9 +187,8 @@ run_benchmark() {
     $BENCHMARK_CONTROL_BIN config init
     # load the benchmark template config file
     $BENCHMARK_CONTROL_BIN config load-file "$config_file"
-    # print the benchmark config
-    echo "Current benchmark config:"
-    $BENCHMARK_CONTROL_BIN config list
+    # set the workload type
+    $BENCHMARK_CONTROL_BIN config set workload_type="$workload"
 
     # get the instances and endpoints
     for i in $(seq 0 $((node_count - 1))); do
@@ -216,6 +212,10 @@ run_benchmark() {
     echo "Current etcd cluster endpoints: $endpoints"
     $BENCHMARK_CONTROL_BIN config set endpoints="$endpoints"
 
+    # print the benchmark config
+    echo "Current benchmark config:"
+    $BENCHMARK_CONTROL_BIN config list
+
     # start the benchmark client service
     echo "Starting benchmark client service..."
     start_benchmark_client_service
@@ -224,16 +224,26 @@ run_benchmark() {
     $BENCHMARK_CONTROL_BIN run "$benchmark_client_pubic_ip:$BENCHMARK_CLIENT_GRPC_PORT"
 
     # download the benchmark client output files
+    echo "Downloading benchmark client output files..."
     download_benchmark_client_output_files "$output_dir"
 
     # cleanup the benchmark client output files
+    echo "Cleaning up benchmark client output files..."
     cleanup_benchmark_client_output_files
 
     # reset all etcd nodes
+    echo "Resetting databases in all etcd nodes..."
     reset_all_etcd_nodes
 
     # restart all etcd nodes
+    echo "Restarting etcd services in all etcd nodes..."
     restart_all_etcd_nodes
+
+    # only sleep if there are more workloads to run
+    if [ "$workload" != "${WORKLOAD_TYPES[-1]}" ]; then
+      echo "Sleeping for 5 minutes before running the next workload..."
+      sleep 300
+    fi
   done
 }
 
@@ -325,11 +335,6 @@ main() {
       ;;
     -d | --out_dir)
       OUT_DIR="$2"
-      shift
-      shift
-      ;;
-    -c | --compress)
-      COMPRESS=true
       shift
       shift
       ;;
