@@ -1,4 +1,5 @@
 SRC = main.go
+BUILD = ../bin
 BIN = benchctl
 INIT_ARGS = config init
 RESET_ARGS = config reset
@@ -8,7 +9,7 @@ RUN_ARGS = run localhost:50051
 .PHONY: all run load init reset clean
 
 all: $(SRC)
-	go build -o ../$(BIN) $(SRC)
+	go build -o $(BUILD)/$(BIN) $(SRC)
 
 config-init: all
 	../$(BIN) $(INIT_ARGS)
