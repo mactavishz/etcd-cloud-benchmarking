@@ -103,7 +103,7 @@ reset_all_etcd_nodes() {
     gcloud compute ssh "${prefix}" --zone="$ZONE" --command="$command"
     return
   fi
-  for i in $(seq 1 $node_count); do
+  for i in $(seq 0 $((node_count - 1))); do
     local instance_name="${prefix}-${i}"
     gcloud compute ssh "$instance_name" --zone="$ZONE" --command="$command"
   done
