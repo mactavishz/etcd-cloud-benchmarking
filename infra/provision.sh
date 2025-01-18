@@ -244,7 +244,7 @@ create_benchmark_machine() {
   git clone ${GIT_REPO_URL} benchmark-repo
   cd ${BENCHMARK_REPO_DIR}
   make client
-  sudo mv benchclient /usr/local/bin/
+  sudo mv ./bin/benchclient /usr/local/bin/
   benchclient --help
   "
 }
