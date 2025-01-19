@@ -48,11 +48,18 @@ BENCHMARK_CONFIG_TEMPLATE_DIR="./templates"
 BENCHMARK_DATA_DIR="benchmark-data"
 BENCHMARK_CLIENT_GRPC_PORT="50051"
 
-# Function to verify cluster health
-verify_cluster() {
+# verify etcd node health
+verify_node_health() {
   local instance=$1
   gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         ETCDCTL_API=3 etcdctl endpoint health -w table
+    "
+}
+
+# verify etcd cluster membership
+verify_cluster_membership() {
+  local instance=$1
+  gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         ETCDCTL_API=3 etcdctl member list -w table
     "
 }
@@ -140,12 +147,16 @@ restart_all_etcd_nodes() {
 
   # Verify cluster health for all nodes
   if [ "$node_count" -eq 1 ]; then
-    verify_cluster "${prefix}"
+    verify_node_health "${prefix}"
   else
     for i in $(seq 0 $((node_count - 1))); do
       local instance_name="${prefix}-${i}"
       echo "Verifying health of node: ${instance_name}"
-      verify_cluster "${instance_name}"
+      verify_node_health "${instance_name}"
+      if [ "$i" -eq "$((node_count - 1))" ]; then
+        # only verify cluster membership for the last node
+        verify_cluster_membership "${instance}"
+      fi
     done
   fi
 }
@@ -239,11 +250,10 @@ run_benchmark() {
     echo "Restarting etcd services in all etcd nodes..."
     restart_all_etcd_nodes
 
-    # only sleep if there are more workloads to run
-    if [ "$workload" != "${WORKLOAD_TYPES[${#WORKLOAD_TYPES[@]} - 1]}" ]; then
-      echo "Sleeping for 5 minutes before running the next workload..."
-      sleep 300
-    fi
+    echo "Sleeping for 5 minutes before running the next workload..."
+    sleep 300
+    # if [ "$workload" != "${WORKLOAD_TYPES[${#WORKLOAD_TYPES[@]} - 1]}" ]; then
+    # fi
   done
 }
 
