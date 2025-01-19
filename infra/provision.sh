@@ -38,9 +38,9 @@ TMP_SERVICE_FILE="etcd.service"
 # Machine configurations
 ETCD_MACHINE_TYPE="n1-standard-2"
 # used for 1-node and 3-node cluster benchmarking
-BENCHMARK_CLIENT_MACHINE_TYPE="n1-standard-4"
+BENCHMARK_CLIENT_MACHINE_TYPE="n1-highcpu-8"
 # used only for 5-node cluster benchmarking
-BENCHMARK_CLIENT_MACHINE_TYPE_XL="n1-standard-8"
+BENCHMARK_CLIENT_MACHINE_TYPE_XL="n1-highcpu-16"
 ETCD_DISK_SIZE="50"
 BENCHMARK_DISK_SIZE="30"
 IMAGE_FAMILY="ubuntu-2204-lts"
@@ -83,29 +83,38 @@ setup_network() {
 
   echo "Creating firewall rules for internal communication..."
   # Create firewall rules for internal communication (between etcd nodes and benchmark client)
-  gcloud compute firewall-rules create ${NETWORK}-internal \
-    --network=${NETWORK} \
-    --allow=tcp,udp,icmp \
-    --source-ranges=${SUBNET_RANGE}
+  (
+    gcloud compute firewall-rules create ${NETWORK}-internal \
+      --network=${NETWORK} \
+      --allow=tcp,udp,icmp \
+      --source-ranges=${SUBNET_RANGE}
+  ) &
 
   echo "Creating firewall rules for etcd cluster communication..."
-  gcloud compute firewall-rules create ${NETWORK}-etcd-internal \
-    --network=${NETWORK} \
-    --allow=tcp:2379,tcp:2380 \
-    --source-ranges=${SUBNET_RANGE}
+  (
+    gcloud compute firewall-rules create ${NETWORK}-etcd-internal \
+      --network=${NETWORK} \
+      --allow=tcp:2379,tcp:2380 \
+      --source-ranges=${SUBNET_RANGE}
+  ) &
 
   echo "Creating firewall rules for SSH access ... (for debugging)"
-  gcloud compute firewall-rules create ${NETWORK}-ssh \
-    --network=${NETWORK} \
-    --allow=tcp:22 \
-    --source-ranges=35.235.240.0/20,0.0.0.0/0 \
-    --description="Allow SSH through IAP and direct access"
+  (
+    gcloud compute firewall-rules create ${NETWORK}-ssh \
+      --network=${NETWORK} \
+      --allow=tcp:22 \
+      --source-ranges=35.235.240.0/20,0.0.0.0/0 \
+      --description="Allow SSH through IAP and direct access"
+  ) &
 
   echo "Creating firewall rules for benchmark machine gRPC public access..."
-  gcloud compute firewall-rules create ${NETWORK}-grpc \
-    --network=${NETWORK} \
-    --allow=tcp:"${BENCHMARK_CLIENT_GRPC_PORT}" \
-    --source-ranges=0.0.0.0/0
+  (
+    gcloud compute firewall-rules create ${NETWORK}-grpc \
+      --network=${NETWORK} \
+      --allow=tcp:"${BENCHMARK_CLIENT_GRPC_PORT}" \
+      --source-ranges=0.0.0.0/0
+  ) &
+  wait
 }
 
 # Function to wait for instance to be ready for SSH
@@ -219,10 +228,30 @@ create_etcd_node() {
   create_and_mount_disk "${name}" "${ETCD_DISK_SIZE}" "${ETCD_PD_SSD_MOUNT_POINT}" "root"
 }
 
+# create multiple etcd nodes in parallel
+create_etcd_nodes() {
+  local node_count=$1
+  local prefix=$2
+
+  echo "Creating ${node_count} etcd nodes in parallel..."
+
+  if [ $node_count -eq 1 ]; then
+    create_etcd_node "${prefix}" "${ETCD_MACHINE_TYPE}" &
+  else
+    for i in $(seq 0 $((node_count - 1))); do
+      create_etcd_node "${prefix}-${i}" "${ETCD_MACHINE_TYPE}" &
+    done
+  fi
+
+  # Wait for all node creations to complete
+  wait
+}
+
 # Create benchmark client machine
 create_benchmark_machine() {
   local name=$1
   local machine_type=$2
+  echo "Creating benchmark client machine, instance name: ${name}..."
   gcloud compute instances create "${name}" \
     --machine-type="${machine_type}" \
     --zone=${ZONE} \
@@ -271,21 +300,68 @@ deploy_cluster() {
 
   setup_network
 
-  # Create etcd nodes
-  if [ $node_count -eq 1 ]; then
-    create_etcd_node "${prefix}" "${ETCD_MACHINE_TYPE}"
-  else
-    for i in $(seq 0 $((node_count - 1))); do
-      create_etcd_node "${prefix}-${i}" "${ETCD_MACHINE_TYPE}"
-    done
-  fi
+  # Create etcd nodes and benchmark machine in parallel
+  create_etcd_nodes $node_count "$prefix" &
 
-  # use larger machine type for 5-node cluster
+  # Wait for all creations to complete
+  wait
+}
+
+deploy_benchmark_client() {
+  local node_count=$1
+  # Start benchmark machine creation in parallel
   if [ $node_count -eq 5 ]; then
-    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE_XL}"
+    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE_XL}" &
   else
-    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE}"
+    create_benchmark_machine "benchmark-client" "${BENCHMARK_CLIENT_MACHINE_TYPE}" &
   fi
+}
+
+parallel_cleanup() {
+  # Delete instances in parallel
+  echo "Deleting etcd node instances..."
+  (
+    gcloud compute instances list \
+      --filter="tags.items=${ETCD_NODE_TAG} AND zone=${ZONE}" \
+      --format="get(name)" | while read -r instance; do
+      echo "Deleting instance: $instance"
+      gcloud compute instances delete "$instance" --zone="${ZONE}" --quiet
+      echo "Deleting data disk: ${instance}-data"
+      gcloud compute disks delete "${instance}-data" --zone="${ZONE}" --quiet
+    done
+  ) &
+
+  echo "Deleting benchmark instance..."
+  (
+    gcloud compute instances list \
+      --filter="tags.items=${BENCHMARK_CLIENT_TAG} AND zone=${ZONE}" \
+      --format="get(name)" | while read -r instance; do
+      echo "Deleting instance: $instance"
+      gcloud compute instances delete "$instance" --zone="${ZONE}" --quiet
+      echo "Deleting data disk: ${instance}-data"
+      gcloud compute disks delete "${instance}-data" --zone="${ZONE}" --quiet
+    done
+
+  ) &
+
+  # Delete firewall rules in parallel
+  echo "Deleting firewall rules..."
+  (
+    gcloud compute firewall-rules list --filter="network=${NETWORK}" \
+      --format="get(name)" | while read -r rule; do
+      gcloud compute firewall-rules delete "$rule" --quiet
+    done
+  ) &
+
+  # Wait for all deletion operations to complete
+  wait
+
+  # Delete subnet and network sequentially as they have dependencies
+  echo "Deleting subnet..."
+  gcloud compute networks subnets delete "${SUBNET}" --region="${REGION}" --quiet
+
+  echo "Deleting VPC network..."
+  gcloud compute networks delete "${NETWORK}" --quiet
 }
 
 # Cleanup resources
@@ -294,55 +370,12 @@ cleanup() {
   read -r response
   if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     echo "Cleaning up all resources..."
+    parallel_cleanup &
+    wait
   else
     echo "Aborting cleanup..."
     exit 1
   fi
-
-  echo "Deleting etcd node instances with ${ETCD_NODE_TAG} tag..."
-  gcloud compute instances list \
-    --filter="tags.items=${ETCD_NODE_TAG} AND zone=${ZONE}" \
-    --format="get(name)" |
-    while read -r instance; do
-      echo "Deleting instance: $instance"
-      gcloud compute instances delete "$instance" --zone="${ZONE}" --quiet
-      echo "Deleting data disk: ${instance}-data"
-      gcloud compute disks delete "${instance}-data" --zone="${ZONE}" --quiet
-    done
-
-  echo "Deleting benchmark instance..."
-  gcloud compute instances list \
-    --filter="tags.items=${BENCHMARK_CLIENT_TAG} AND zone=${ZONE}" \
-    --format="get(name)" |
-    while read -r instance; do
-      echo "Deleting instance: $instance"
-      gcloud compute instances delete "$instance" --zone="${ZONE}" --quiet
-      echo "Deleting data disk: ${instance}-data"
-      gcloud compute disks delete "${instance}-data" --zone="${ZONE}" --quiet
-    done
-
-  echo "Deleting remaining disks in zone ${ZONE}..."
-  gcloud compute disks list \
-    --filter="zone:${ZONE}" \
-    --format="get(name)" |
-    while read -r disk; do
-      if [[ $disk == etcd-* ]] || [[ $disk == benchmark-* ]]; then
-        echo "Deleting disk: $disk"
-        gcloud compute disks delete "$disk" --zone="${ZONE}" --quiet
-      fi
-    done
-
-  echo "Deleting firewall rules..."
-  gcloud compute firewall-rules list --filter="network=${NETWORK}" --format="get(name)" |
-    while read -r rule; do
-      gcloud compute firewall-rules delete "$rule" --quiet
-    done
-
-  echo "Deleting subnet..."
-  gcloud compute networks subnets delete "${SUBNET}" --region="${REGION}" --quiet
-
-  echo "Deleting VPC network..."
-  gcloud compute networks delete "${NETWORK}" --quiet
 }
 
 # Generate etcd systemd service template
@@ -351,8 +384,9 @@ generate_etcd_service() {
   local initial_cluster=$2
   local initial_cluster_state=$3
   local private_ip=$4
+  local output_file=$5
 
-  cat <<EOF >${TMP_SERVICE_FILE}
+  cat <<EOF >${output_file}
 [Unit]
 Description=etcd distributed key-value store
 Documentation=https://github.com/etcd-io/etcd
@@ -427,23 +461,28 @@ configure_etcd_cluster() {
   # Generate and copy service files for all nodes first
   echo "Generating and copying service files..."
   for i in $(seq 0 $((node_count - 1))); do
-    local instance="${instances[$i]}"
-    generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}"
+    (
+      local instance="${instances[$i]}"
+      local tmp_service_file="${instance}.${TMP_SERVICE_FILE}"
+      generate_etcd_service "${instance}" "${cluster_nodes}" "new" "${ips[$i]}" "${tmp_service_file}"
 
-    # Wait for startup script to finish before copying service file
-    wait_for_startup_finish "${instance}"
+      # Wait for startup script to finish before copying service file
+      wait_for_startup_finish "${instance}"
 
-    # Copy service file
-    echo "Copying service file to ${instance}..."
-    gcloud compute scp ${TMP_SERVICE_FILE} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
-    rm ${TMP_SERVICE_FILE}
+      # Copy service file
+      echo "Copying service file to ${instance}..."
+      gcloud compute scp ${tmp_service_file} "${instance}":~/${TMP_SERVICE_FILE} --zone=${ZONE}
+      rm ${tmp_service_file}
+    ) &
   done
+
+  wait
 
   # Start all nodes in parallel
   echo "Starting etcd services on all nodes..."
   for i in $(seq 0 $((node_count - 1))); do
-    local instance="${instances[$i]}"
     (
+      local instance="${instances[$i]}"
       gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         sudo mkdir -p ${ETCD_DATA_DIR}
         sudo mv ${TMP_SERVICE_FILE} /etc/systemd/system/
@@ -461,19 +500,35 @@ configure_etcd_cluster() {
   echo "Waiting for cluster to stabilize..."
   sleep 20
 
-  # Verify cluster health for all nodes
+  # Verify cluster health for all nodes in parallel
   for i in $(seq 0 $((node_count - 1))); do
-    local instance="${instances[$i]}"
-    echo "Verifying health of node: ${instance}"
-    verify_cluster "${instance}"
+    (
+      local instance="${instances[$i]}"
+      echo "Verifying health of node: ${instance}"
+      verify_node_health "${instance}"
+      if [ "$i" -eq "$((node_count - 1))" ]; then
+        # only verify cluster membership for the last node
+        verify_cluster_membership "${instance}"
+      fi
+    ) &
   done
+
+  # Wait for all background processes to complete
+  wait
 }
 
-# Function to verify cluster health
-verify_cluster() {
+# verify etcd node health
+verify_node_health() {
   local instance=$1
   gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         ETCDCTL_API=3 etcdctl endpoint health -w table
+    "
+}
+
+# verify etcd cluster membership
+verify_cluster_membership() {
+  local instance=$1
+  gcloud compute ssh "${instance}" --zone=${ZONE} --command="
         ETCDCTL_API=3 etcdctl member list -w table
     "
 }
@@ -501,16 +556,19 @@ main() {
   "deploy-1")
     confirm_gcloud_project
     deploy_cluster 1
+    deploy_benchmark_client 1
     configure_etcd_cluster 1
     ;;
   "deploy-3")
     confirm_gcloud_project
     deploy_cluster 3
+    deploy_benchmark_client 3
     configure_etcd_cluster 3
     ;;
   "deploy-5")
     confirm_gcloud_project
     deploy_cluster 5
+    deploy_benchmark_client 5
     configure_etcd_cluster 5
     ;;
   "cleanup")
