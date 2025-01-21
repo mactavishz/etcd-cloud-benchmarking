@@ -252,8 +252,6 @@ run_benchmark() {
 
     echo "Sleeping for 5 minutes before running the next workload..."
     sleep 300
-    # if [ "$workload" != "${WORKLOAD_TYPES[${#WORKLOAD_TYPES[@]} - 1]}" ]; then
-    # fi
   done
 }
 
@@ -353,6 +351,15 @@ main() {
       ;;
     esac
   done
+
+  # if workloads are not provided, set the default workloads
+  if [ ${#WORKLOAD_TYPES[@]} -eq 0 ]; then
+    if [ "$SCENARIO" == "kv" ]; then
+      WORKLOAD_TYPES=("${KV_WORKLOAD_TYPES[@]}")
+    else
+      WORKLOAD_TYPES=("${LOCK_WORKLOAD_TYPES[@]}")
+    fi
+  fi
 
   run_benchmark
 }
