@@ -9,22 +9,20 @@ fi
 
 # Usage functions
 print_usage() {
-  echo "Usage: $0 [command] [zone]"
+  echo "Usage: $0 <command> [options]"
   echo "Commands:"
-  echo "  deploy-1 - Deploy single node etcd cluster with benchmark machine"
-  echo "  deploy-3 - Deploy three node etcd cluster with benchmark machine"
-  echo "  deloy-5  - Deploy five node etcd cluster with benchmark machine"
+  echo "  deploy   - Deploy etcd cluster with number of nodes specified by -n, along with 1 benchmark machine"
   echo "  cleanup  - Cleanup all resources"
-  echo "Arguments:"
-  echo "  zone    - Zone, in which the resources are created and deployed, use only 'a', 'b', or 'c'"
+  echo "Options:"
+  echo "  -n, --num_nodes <number>  The number of nodes in the etcd cluster. Default: 1"
+  echo "  -z  --zone <zone>         The GCP zone in which the instances are deployed, available options: a, b, c. Default: c"
+  echo "  -y, --yes                 Skip confirmation prompt"
+  echo "  -h, --help                Print this help message"
 }
 
-# Exit if no argument provided
-if [ $# -eq 0 ]; then
-  echo "Error: No argument provided"
-  print_usage
-  exit 1
-fi
+# Options
+NUM_NODES=1
+SKIP_PROMPT=false
 
 # Common variables
 PROJECT_ID="$(gcloud config get core/project)"
@@ -57,6 +55,9 @@ BENCHMARK_REPO_DIR="benchmark-repo"
 GIT_REPO_URL="https://git.tu-berlin.de/mactavishz/csb-project-ws2425.git"
 
 confirm_gcloud_project() {
+  if [ "$SKIP_PROMPT" = true ]; then
+    return 0
+  fi
   echo "Your current project is: ${PROJECT_ID}"
   echo "Do you want to continue with this project? [y/n]"
   read -r response
@@ -366,7 +367,11 @@ parallel_cleanup() {
 
 # Cleanup resources
 cleanup() {
-  echo "Do you want to clean up all the resources? [y/n]"
+  if [ "$SKIP_PROMPT" = true ]; then
+    parallel_cleanup
+    return 0
+  fi
+  echo "Do you want to clean up all the resources in ${ZONE}? [y/n]"
   read -r response
   if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     echo "Cleaning up all resources..."
@@ -533,52 +538,102 @@ verify_cluster_membership() {
     "
 }
 
-main() {
-  # Main script execution
-  if [ $# -eq 2 ]; then
-    local lowercase_arg=$2
-    lowercase_arg=$(echo "$2" | tr '[:upper:]' '[:lower:]')
-    # Check if $2 is 'a', 'b', or 'c'
-    if [[ "$lowercase_arg" =~ ^(a|b|c)$ ]]; then
-      ZONE=${REGION}-${lowercase_arg}
-      echo "Use custom zone: ${ZONE}"
-    else
-      echo "Error: the [zone] parameter must be 'a', 'b', or 'c', instead of $2"
-      exit 1
-    fi
-  elif [ $# -gt 2 ]; then
-    echo "Error: too much parameters"
-  else
-    echo "Use default zone: ${ZONE}"
-  fi
-
-  case "$1" in
-  "deploy-1")
+start_deploy() {
+  echo "Starting deployment..."
+  echo "Deploying etcd cluster with ${NUM_NODES} nodes..."
+  echo "Zone: ${ZONE}"
+  case "$NUM_NODES" in
+  1)
     confirm_gcloud_project
     deploy_cluster 1
     deploy_benchmark_client 1
     configure_etcd_cluster 1
     ;;
-  "deploy-3")
+  3)
     confirm_gcloud_project
     deploy_cluster 3
     deploy_benchmark_client 3
     configure_etcd_cluster 3
     ;;
-  "deploy-5")
+  5)
     confirm_gcloud_project
     deploy_cluster 5
     deploy_benchmark_client 5
     configure_etcd_cluster 5
-    ;;
-  "cleanup")
-    cleanup
     ;;
   *)
     print_usage
     exit 1
     ;;
   esac
+}
+
+main() {
+  # Exit if no argument provided
+  local cmd=""
+  if [ $# -eq 0 ]; then
+    echo "Error: No argument provided"
+    print_usage
+    exit 1
+  fi
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    # add help message using -h or --help
+    -h | --help)
+      print_usage
+      return 0
+      ;;
+    -y | --yes)
+      SKIP_PROMPT=true
+      shift
+      ;;
+    -z | --zone)
+      local lowercase_arg=$2
+      lowercase_arg=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+      # Check if $2 is 'a', 'b', or 'c'
+      if [[ "$lowercase_arg" =~ ^(a|b|c)$ ]]; then
+        ZONE=${REGION}-${lowercase_arg}
+        echo "Setting zone to ${ZONE}"
+      else
+        echo "Error: the [zone] option must be 'a', 'b', or 'c', instead of $2"
+        exit 1
+      fi
+      shift
+      shift
+      ;;
+    -n | --num_nodes)
+      # check if the argument is a number and one of 1, 3, 5
+      if [[ "$2" =~ ^[1|3|5]$ ]]; then
+        NUM_NODES=$2
+      else
+        echo "Error: the [num_nodes] parameter must be 1, 3, or 5, instead of $2"
+        exit 1
+      fi
+      shift
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+    *)
+      cmd="$1"
+      # arg must be exactly one of 'deploy', 'cleanup'
+      if [[ "$cmd" != "deploy" && "$cmd" != "cleanup" ]]; then
+        echo "Error: the [command] parameter must be 'deploy' or 'cleanup', instead of $1"
+        exit 1
+      fi
+      shift # Remove the argument
+      ;;
+    esac
+  done
+
+  if [[ "$cmd" == "deploy" ]]; then
+    start_deploy
+  elif [[ "$cmd" == "cleanup" ]]; then
+    cleanup
+  fi
 }
 
 main "$@"
