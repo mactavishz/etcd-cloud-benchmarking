@@ -179,8 +179,6 @@ run_benchmark() {
   local node_count=$NUM_NODES
   local prefix="etcd"
   local config_file="$BENCHMARK_CONFIG_TEMPLATE_DIR/$SCENARIO.json"
-  local instances=()
-  local endpoints=""
   local benchmark_client_pubic_ip=$(get_instance_public_ip "${BENCHMARK_CLIENT_INSTANCE}")
 
   # Set the appropriate instance prefix based on node count
@@ -194,6 +192,8 @@ run_benchmark() {
   for workload in "${WORKLOAD_TYPES[@]}"; do
     echo "Running benchmark for workload type: $workload"
     local output_dir="$OUT_DIR/$workload"
+    local instances=()
+    local endpoints=""
     mkdir -p "$output_dir"
     # init the benchmark config
     $BENCHMARK_CONTROL_BIN config init
