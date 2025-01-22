@@ -16,6 +16,7 @@ print_usage() {
   echo "  -s, --scenario <name>     The benchmark scenario name to run, available options: kv, lock. Default: kv"
   echo "  -w  --workload <name>     The workload type in kv/lock scenario to run, available options for scenario kv: read-only, read-heavy, update-heavy, available options for scenario lock: lock-only, lock-mixed-read, lock-mixed-write, lock-contention. Multiple values are provided with commas in between, or all can be used for sepcifying all workloads. Default: all"
   echo "  -d  --out_dir <path>      The output directory for the benchmark results, can be relative or absolute path. Default: results"
+  echo "  -h, --help                Print this help message"
   exit 0
 }
 
@@ -256,13 +257,6 @@ run_benchmark() {
 }
 
 main() {
-  # Exit if no argument provided
-  if [ $# -eq 0 ]; then
-    echo "Error: No argument provided"
-    print_usage
-    exit 1
-  fi
-
   while [[ $# -gt 0 ]]; do
     key="$1"
     case $key in
