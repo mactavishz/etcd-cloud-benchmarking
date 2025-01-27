@@ -162,7 +162,7 @@ class EtcdPerfAnalyzer:
 
         plt.xlabel("Benchmark Duration (minutes)")
         plt.ylabel("Throughput (req/s)")
-        plt.title(f"Throughput Comparison - {workload_type}")
+        plt.title(f"Throughput Comparison - {workload_type}, (Latency < 100ms)")
         plt.legend()
         plt.grid(True)
         plt.savefig(f"{output_dir}/throughput_{workload_type}.png")
@@ -292,17 +292,20 @@ class EtcdPerfAnalyzer:
         plt.savefig(f"{output_dir}/latency_{workload_type}_progress_based.png")
         plt.close()
 
-    def analyze_workloads(self, workloads: List[str], scenario: str, output_dir: str):
-        """Analyze and plot metrics for given workloads."""
+    def analyze_kv_workloads(self, workloads: List[str], output_dir: str):
+        """Analyze and plot metrics for given workloads in kv use case."""
         results = {workload: {"original_dfs": []} for workload in workloads}
-
+        latency_output_dir = Path(output_dir) / "latency"
+        throughput_output_dir = Path(output_dir) / "throughput"
+        os.makedirs(latency_output_dir, exist_ok=True)
+        os.makedirs(throughput_output_dir, exist_ok=True)
         for workload in workloads:
             for node_config in self.node_configs:
                 csv_filepath = (
-                    self.base_path / f"{scenario}/{node_config}/{workload}/metrics.csv"
+                    self.base_path / f"kv/{node_config}/{workload}/metrics.csv"
                 )
                 if csv_filepath.exists():
-                    raw_df = self.load_metrics(csv_filepath, scenario)
+                    raw_df = self.load_metrics(csv_filepath, "kv")
                     results[workload]["original_dfs"].append(raw_df)
 
             if results[workload]["original_dfs"]:
@@ -314,9 +317,147 @@ class EtcdPerfAnalyzer:
                     "30s",
                     output_dir,
                 )
-                self.plot_latency_progress_comparison(data_dict, workload, output_dir)
-                self.plot_latency_comparison(results, workload, output_dir)
-                self.plot_throughput_comparison(results, workload, output_dir)
+                self.plot_latency_progress_comparison(
+                    data_dict, workload, latency_output_dir
+                )
+                self.plot_latency_comparison(results, workload, latency_output_dir)
+                self.plot_throughput_comparison(
+                    results, workload, throughput_output_dir
+                )
+
+    def analyze_lock_workloads(self, workloads: List[str], output_dir: str):
+        """Analyze and plot metrics for given workloads in lock use case."""
+        results = {workload: {"original_dfs": []} for workload in workloads}
+        latency_output_dir = Path(output_dir) / "latency"
+        throughput_output_dir = Path(output_dir) / "throughput"
+        os.makedirs(latency_output_dir, exist_ok=True)
+        os.makedirs(throughput_output_dir, exist_ok=True)
+        for workload in workloads:
+            for node_config in self.node_configs:
+                csv_filepath = (
+                    self.base_path / f"lock/{node_config}/{workload}/metrics.csv"
+                )
+                if csv_filepath.exists():
+                    raw_df = self.load_metrics(csv_filepath, "lock")
+                    results[workload]["original_dfs"].append(raw_df)
+
+            if results[workload]["original_dfs"]:
+                data_dict = self.normalize_latency_progress(
+                    results[workload]["original_dfs"][0],
+                    results[workload]["original_dfs"][1],
+                    results[workload]["original_dfs"][2],
+                    workload,
+                    "30s",
+                    output_dir,
+                )
+                self.plot_latency_progress_comparison(
+                    data_dict, workload, latency_output_dir
+                )
+                self.plot_latency_comparison(results, workload, latency_output_dir)
+                self.plot_throughput_comparison(
+                    results, workload, throughput_output_dir
+                )
+
+
+class SystemMetricsAnalyzer:
+    node_configs = ["1-node", "3-node", "5-node"]
+
+    def __init__(self, base_path: str):
+        self.base_path = Path(base_path)
+        sns.set_theme(style="whitegrid")
+        plt.rcParams["figure.figsize"] = [12, 6]
+
+    def load_metrics(self, cpu_path, mem_path):
+        """
+        Load CPU and Memory utilization metrics from Google Cloud export CSVs.
+        """
+        cpu_df = pl.read_csv(
+            cpu_path, try_parse_dates=True, has_header=True, skip_rows=4
+        )
+        mem_df = pl.read_csv(
+            mem_path, try_parse_dates=True, has_header=True, skip_rows=4
+        )
+        return cpu_df, mem_df
+
+    def process_metrics(self, df):
+        """
+        Process CPU/Memory metrics: convert timestamps and aggregate by node.
+        """
+        df = df.rename({"system_labels.name": "timestamp"})
+        df = df.with_columns(
+            pl.col("timestamp").str.replace(r" \(.*\)$", "").alias("timestamp")
+        ).with_columns(
+            pl.col("timestamp")
+            .str.strptime(pl.Datetime, format="%a %b %d %Y %H:%M:%S GMT%z")
+            .alias("timestamp"),
+            pl.col(df.columns[1:]).cast(pl.Float64, strict=False),
+        )
+        # Compute relative time in minutes
+        start_time = df["timestamp"].min()
+        df = df.with_columns(
+            ((pl.col("timestamp") - start_time).dt.total_seconds() / 60).alias(
+                "timestamp"
+            )
+        )
+        utilization_columns = df.columns[1:]  # Exclude timestamp
+        for col in utilization_columns:
+            if df[col].max() <= 1.0:  # Convert to percentage
+                df = df.with_columns((pl.col(col) * 100).alias(col))
+        return df
+
+    def plot_utilization(self, df, metric_name, workload, node_config, output_path):
+        """
+        Plot CPU or Memory utilization for different nodes over time.
+        """
+        plt.figure()
+
+        nodes = df.columns[1:]  # Exclude timestamp
+        colors = plt.get_cmap("tab10").colors  # Use a standard color map
+
+        for i, node in enumerate(nodes):
+            color = colors[i % len(colors)]
+
+            plt.plot(
+                df["timestamp"],
+                df[node],
+                color=color,
+                linestyle="-",
+                label=f"{node}",
+            )
+
+        plt.xlabel("Time")
+        plt.ylabel(f"{metric_name} Utilization (%)")
+        plt.title(f"{metric_name} Utilization Over Time")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(
+            f"{output_path}/{node_config}_{workload}_{metric_name.lower()}_utilization.png"
+        )
+        plt.close()
+
+    def analyze_and_plot(self, workloads, scenario, output_path):
+        """
+        Full pipeline: Load, process, and plot CPU & Memory utilization together.
+        """
+        output_path = Path(output_path) / "system"
+        os.makedirs(output_path, exist_ok=True)
+        for workload in workloads:
+            for node_config in self.node_configs:
+                cpu_csv = (
+                    self.base_path
+                    / f"{scenario}/{node_config}/{workload}/CPU_Utilization.csv"
+                )
+                mem_csv = (
+                    self.base_path
+                    / f"{scenario}/{node_config}/{workload}/Memory_Utilization.csv"
+                )
+                cpu_df, mem_df = self.load_metrics(cpu_csv, mem_csv)
+                cpu_df = self.process_metrics(cpu_df)
+                mem_df = self.process_metrics(mem_df)
+                self.plot_utilization(cpu_df, "CPU", workload, node_config, output_path)
+                self.plot_utilization(
+                    mem_df, "Memory", workload, node_config, output_path
+                )
 
 
 def main():
@@ -334,18 +475,22 @@ def main():
 
     os.makedirs(args.output, exist_ok=True)
     analyzer = EtcdPerfAnalyzer(args.root)
+    sys_analyzer = SystemMetricsAnalyzer(args.root)
 
     # KV Store Analysis
     kv_workloads = ["read-only", "read-heavy", "update-heavy"]
-    analyzer.analyze_workloads(kv_workloads, "kv", args.output)
-    # data = analyzer.preprocess_kv_metrics(workloads)
-    # for workload_type, workload_data in data.items():
-    #     print(workload_type)
-    #     for df in workload_data["original_dfs"]:
-    #         print(df.head(5))
+    analyzer.analyze_kv_workloads(kv_workloads, args.output)
+    sys_analyzer.analyze_and_plot(kv_workloads, "kv", args.output)
 
-    # Lock Store Analysis
-    # workloads = ["lock-only", "lock-mixed-read", "lock-mixed-write", "lock-contention"]
+    # Lock Service Analysis
+    lock_workloads = [
+        "lock-only",
+        "lock-mixed-read",
+        "lock-mixed-write",
+        "lock-contention",
+    ]
+    analyzer.analyze_lock_workloads(lock_workloads, args.output)
+    sys_analyzer.analyze_and_plot(lock_workloads, "lock", args.output)
 
 
 if __name__ == "__main__":
