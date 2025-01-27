@@ -3,4 +3,7 @@ bin/
 default.etcd/
 .vscode
 .idea
+.venv
 infra/*.service
+benchmark/output/
+benchmark/results/
