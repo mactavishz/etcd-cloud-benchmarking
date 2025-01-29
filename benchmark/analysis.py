@@ -1,6 +1,5 @@
-import polars as pl
-
 # import numpy as np
+import polars as pl
 import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
@@ -26,7 +25,6 @@ class EtcdPerfAnalyzer:
         }
     )
 
-    # Define lock_dtypes schema, extending kv_schema
     lock_schema = pl.Schema(
         {
             "unix_timestamp_nano": pl.UInt64(),
@@ -128,7 +126,7 @@ class EtcdPerfAnalyzer:
     def plot_latency_comparison(self, data: Dict, workload_type: str, output_dir: str):
         """Generate latency comparison plot."""
         plt.figure()
-
+        print(f"Analyzing latency comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             metrics = self.calculate_latency_metrics(df, sample_rate="30s")
             plt.plot(
@@ -150,6 +148,7 @@ class EtcdPerfAnalyzer:
     ):
         """Generate throughput comparison plot."""
         plt.figure()
+        print(f"Analyzing throughput comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             metrics = self.calculate_throughput_metrics(
                 df, sla_threshold=100, rolling_window="1s", sample_rate="30s"
@@ -219,9 +218,14 @@ class EtcdPerfAnalyzer:
         """
         Resample the latency data into 1-minute intervals after extracting matching requests.
         """
-        # Ensure correct column naming
         if "timestamp" in df.columns:
             df = df.rename({"timestamp": "aligned_timestamp"})
+
+        # Forward fill any remaining nulls in other columns
+        df = df.fill_null(strategy="forward")
+
+        # Sort the dataframe by aligned_timestamp before grouping
+        df = df.sort("aligned_timestamp")
 
         return df.group_by_dynamic("aligned_timestamp", every=sample_rate).agg(
             pl.col("latency_ms").quantile(0.99).alias("latency_p99"),
@@ -239,13 +243,13 @@ class EtcdPerfAnalyzer:
         baseline_df = self.compute_baseline_throughput(df_1node)
         total_requests = baseline_df[
             "cumulative_requests"
-        ].max()  # Total requests for normalization
+        ].max()  # Total number of requests for normalization
 
         # Extract equivalent requests for 3-node and 5-node
         aligned_3node = self.extract_matching_requests(df_3node, baseline_df)
         aligned_5node = self.extract_matching_requests(df_5node, baseline_df)
 
-        # Step 3: Resample latency AFTER matching requests
+        # Resample latency values
         baseline_df = self.resample_latency(baseline_df, sample_rate)
         aligned_3node = self.resample_latency(aligned_3node, sample_rate)
         aligned_5node = self.resample_latency(aligned_5node, sample_rate)
@@ -255,7 +259,6 @@ class EtcdPerfAnalyzer:
         aligned_3node = self.normalize_progress_time(aligned_3node, total_requests)
         aligned_5node = self.normalize_progress_time(aligned_5node, total_requests)
 
-        # Collect results
         data_dict = {
             "1-node": baseline_df,
             "3-node": aligned_3node,
@@ -264,12 +267,16 @@ class EtcdPerfAnalyzer:
 
         return data_dict
 
-    def plot_latency_progress_comparison(self, data_dict, workload_type, output_dir):
+    def plot_latency_fixed_throughput_comparison(
+        self, data_dict, workload_type, output_dir
+    ):
         """
         Plot latency in progress time with the same throughput level for different node setups.
         """
         plt.figure()
-
+        print(
+            f"Analyzing latency with the same level of throughput for {workload_type}"
+        )
         for node_config, df in data_dict.items():
             plt.plot(
                 df["progress_time"],
@@ -277,19 +284,17 @@ class EtcdPerfAnalyzer:
                 label=f"{node_config} P99",
             )
 
-        # Extract maximum throughput value for the title
+        # Extract the throughput level for the title
         max_throughput = max(
             df["cumulative_requests"].max() for df in data_dict.values()
         )
 
         plt.xlabel("Progress (%)")
         plt.ylabel("Latency (ms)")
-        plt.title(
-            f"Latency Comparison - {workload_type} (Progress-Based), {max_throughput} reqs"
-        )
+        plt.title(f"Latency Comparison - {workload_type} with {max_throughput} reqs")
         plt.legend()
         plt.grid(True)
-        plt.savefig(f"{output_dir}/latency_{workload_type}_progress_based.png")
+        plt.savefig(f"{output_dir}/latency_{workload_type}_fixed_throughput.png")
         plt.close()
 
     def plot_error_rate_comparison(
@@ -297,7 +302,7 @@ class EtcdPerfAnalyzer:
     ):
         """Generate error rate comparison plot over time."""
         plt.figure()
-
+        print(f"Analyzing error rate comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             # Calculate error rate per minute
             error_metrics = df.group_by_dynamic("timestamp", every="1m").agg(
@@ -339,8 +344,7 @@ class EtcdPerfAnalyzer:
     ):
         """Generate violin plots to show latency distribution."""
         plt.figure(figsize=(12, 6))
-
-        # Create a list to store latencies for each node configuration
+        print(f"Analyzing latency distribution for {workload_type}")
         plot_data = []
 
         for df in data[workload_type]["original_dfs"]:
@@ -348,7 +352,6 @@ class EtcdPerfAnalyzer:
             latencies = filtered_df["latency_ms"].to_numpy()
             plot_data.append(latencies)
 
-        # Create violin plot
         violin_parts = plt.violinplot(
             plot_data,
             positions=range(len(self.node_configs)),
@@ -356,13 +359,11 @@ class EtcdPerfAnalyzer:
             showmedians=True,
         )
 
-        # Customize violin plot colors
         for pc in violin_parts["bodies"]:
             pc.set_facecolor("skyblue")
             pc.set_edgecolor("black")
             pc.set_alpha(0.7)
 
-        # Customize mean and median lines
         violin_parts["cmeans"].set_color("red")
         violin_parts["cmedians"].set_color("black")
 
@@ -384,13 +385,99 @@ class EtcdPerfAnalyzer:
         plt.savefig(f"{output_dir}/latency_distribution_{workload_type}.png")
         plt.close()
 
+    def infer_num_clients(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Infer number of clients from timestamp for lock-mixed workloads."""
+        # Get the start timestamp
+        start_time = df["timestamp"].min()
+
+        # Calculate minutes elapsed since start
+        df = df.with_columns(
+            ((pl.col("timestamp") - start_time).dt.total_seconds() / 60)
+            .floor()
+            .alias("minutes_elapsed")
+        )
+
+        # Calculate number of clients (starting from 10, adding 10 every minute)
+        df = df.with_columns(
+            (10 + pl.col("minutes_elapsed") * 10)
+            .clip(10, 250)  # Max 250 clients
+            .alias("num_clients")
+        )
+
+        return df
+
+    def analyze_load_response(self, data: Dict, workload_type: str, output_dir: str):
+        """Analyze load response between number of clients and latency."""
+        print(f"Analyzing load response for {workload_type}")
+        plt.figure(figsize=(12, 8))
+
+        colors = ["blue", "orange", "green"]  # One color for each node configuration
+
+        for i, df in enumerate(data[workload_type]["original_dfs"]):
+            filtered_df = df.filter(pl.col("success"))
+
+            # Check if we need to infer num_clients
+            if (
+                workload_type.startswith("lock-mixed")
+                and filtered_df["num_clients"].max() == 0
+            ):
+                print(
+                    f"Inferring num_clients for {workload_type} in {self.node_configs[i]}"
+                )
+                filtered_df = self.infer_num_clients(filtered_df)
+            # Calculate average latency and standard deviation for each client count
+            agg_df = (
+                filtered_df.group_by("num_clients")
+                .agg(
+                    [
+                        pl.col("latency_ms").mean().alias("avg_latency"),
+                        pl.col("latency_ms").std().alias("std_latency"),
+                    ]
+                )
+                .sort("num_clients")
+            )
+
+            x = agg_df["num_clients"].to_numpy()
+            y = agg_df["avg_latency"].to_numpy()
+            yerr = agg_df["std_latency"].to_numpy()
+
+            # Plot with error bars
+            plt.errorbar(
+                x,
+                y,
+                yerr=yerr,
+                label=self.node_configs[i],
+                marker="o",
+                linestyle="-",
+                capsize=5,
+                color=colors[i],
+            )
+
+        plt.xlabel("Number of Clients")
+        plt.ylabel("Mean Latency (ms)")
+        plt.title(f"Load Response - {workload_type}")
+        plt.legend()
+        plt.grid(True)
+
+        # Adjust layout and save
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/load_response_{workload_type}.png")
+        plt.close()
+
     def analyze_kv_workloads(self, workloads: List[str], output_dir: str):
-        """Analyze and plot metrics for given workloads in kv use case."""
+        """Analyze and plot metrics for given workloads in kv store use case."""
         results = {workload: {"original_dfs": []} for workload in workloads}
-        # Create output directories
-        for plot_type in ["latency", "throughput", "error_rate", "distribution"]:
+        for plot_type in [
+            "latency",
+            "throughput",
+            "error_rate",
+            "distribution",
+            "scalability",
+        ]:
             os.makedirs(Path(output_dir) / plot_type, exist_ok=True)
+        print("Analyzing KV-Store workloads: ", workloads)
         for workload in workloads:
+            print(f"Analyzing {workload}")
             for node_config in self.node_configs:
                 csv_filepath = (
                     self.base_path / f"kv/{node_config}/{workload}/metrics.csv"
@@ -408,7 +495,7 @@ class EtcdPerfAnalyzer:
                     "30s",
                     output_dir,
                 )
-                self.plot_latency_progress_comparison(
+                self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
@@ -423,16 +510,26 @@ class EtcdPerfAnalyzer:
                 self.plot_error_rate_comparison(
                     results, workload, Path(output_dir) / "error_rate"
                 )
+                self.analyze_load_response(
+                    results, workload, Path(output_dir) / "scalability"
+                )
 
     def analyze_lock_workloads(self, workloads: List[str], output_dir: str):
-        """Analyze and plot metrics for given workloads in lock use case."""
+        """Analyze and plot metrics for given workloads in lock service use case."""
         results = {workload: {"original_dfs": []} for workload in workloads}
 
-        # Create output directories
-        for plot_type in ["latency", "throughput", "error_rate", "distribution"]:
+        for plot_type in [
+            "latency",
+            "throughput",
+            "error_rate",
+            "distribution",
+            "scalability",
+        ]:
             os.makedirs(Path(output_dir) / plot_type, exist_ok=True)
 
+        print("Analyzing Lock-Service workloads: ", workloads)
         for workload in workloads:
+            print(f"Analyzing {workload}")
             for node_config in self.node_configs:
                 csv_filepath = (
                     self.base_path / f"lock/{node_config}/{workload}/metrics.csv"
@@ -449,7 +546,7 @@ class EtcdPerfAnalyzer:
                     "30s",
                     output_dir,
                 )
-                self.plot_latency_progress_comparison(
+                self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
@@ -464,6 +561,9 @@ class EtcdPerfAnalyzer:
                 self.plot_error_rate_comparison(
                     results, workload, Path(output_dir) / "error_rate"
                 )
+                self.analyze_load_response(
+                    results, workload, Path(output_dir) / "scalability"
+                )
 
 
 class SystemMetricsAnalyzer:
@@ -476,7 +576,7 @@ class SystemMetricsAnalyzer:
 
     def load_metrics(self, cpu_path, mem_path):
         """
-        Load CPU and Memory utilization metrics from Google Cloud export CSVs.
+        Load CPU and Memory utilization metrics from Google Cloud Monitoring exported CSVs.
         """
         cpu_df = pl.read_csv(
             cpu_path, try_parse_dates=True, has_header=True, skip_rows=4
@@ -517,7 +617,7 @@ class SystemMetricsAnalyzer:
         Plot CPU or Memory utilization for different nodes over time.
         """
         plt.figure()
-
+        print(f"Analyzing {metric_name} utilization for {workload} in {node_config}")
         nodes = df.columns[1:]  # Exclude timestamp
         colors = plt.get_cmap("tab10").colors  # Use a standard color map
 
@@ -544,10 +644,11 @@ class SystemMetricsAnalyzer:
 
     def analyze_and_plot(self, workloads, scenario, output_path):
         """
-        Full pipeline: Load, process, and plot CPU & Memory utilization together.
+        Analyze and plot CPU & Memory utilization together.
         """
         output_path = Path(output_path) / "system"
         os.makedirs(output_path, exist_ok=True)
+        print(f"Analyzing system metrics for {scenario} scenario")
         for workload in workloads:
             for node_config in self.node_configs:
                 cpu_csv = (
@@ -580,6 +681,7 @@ def main():
     )
     args = parser.parse_args()
 
+    print("Start analyzing Etcd performance benchmarks")
     os.makedirs(args.output, exist_ok=True)
     analyzer = EtcdPerfAnalyzer(args.root)
     sys_analyzer = SystemMetricsAnalyzer(args.root)
@@ -598,6 +700,7 @@ def main():
     ]
     analyzer.analyze_lock_workloads(lock_workloads, args.output)
     sys_analyzer.analyze_and_plot(lock_workloads, "lock", args.output)
+    print("Analysis completed. Plots saved in ", args.output)
 
 
 if __name__ == "__main__":
