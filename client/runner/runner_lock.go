@@ -114,7 +114,7 @@ func (r *BenchmarkRunnerLock) addClients(numNewClients int) error {
 }
 
 // Quick acquire-release cycles without any KV operations
-func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
+func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, numClients int, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
 	var (
 		acquireLatency, releaseLatency time.Duration
 		success                        bool = false
@@ -161,7 +161,7 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 				Latency:    acquireLatency + releaseLatency,
 				Success:    success,
 				ClientID:   clientID,
-				NumClients: len(r.clients),
+				NumClients: numClients,
 				RunPhase:   runPhase,
 				StatusCode: statusCode,
 				StatusText: statusText,
@@ -186,7 +186,7 @@ func (r *BenchmarkRunnerLock) runLockOnlyWorkload(mutex *concurrency.Mutex, clie
 }
 
 // Mixed workload with lock acquisition, write, lock release operations
-func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg *rand.Rand, key string, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
+func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg *rand.Rand, key string, numClients int, clientID int, lockName string, runPhase string, latencyChan chan time.Duration) error {
 	var (
 		acquireLatency, kvLatency, releaseLatency time.Duration
 		success                                   bool = false
@@ -263,6 +263,7 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 				RunPhase:   runPhase,
 				StatusCode: statusCode,
 				StatusText: statusText,
+				NumClients: numClients,
 			},
 			LockName:         lockName,
 			AquireLatency:    acquireLatency,
@@ -343,11 +344,11 @@ func (r *BenchmarkRunnerLock) runLoadStep(ctx context.Context, numClients int, i
 
 					switch r.config.WorkloadType {
 					case constants.WORKLOAD_TYPE_LOCK_ONLY:
-						err = r.runLockOnlyWorkload(mutex, clientID, lockName, runPhase, latencyChan)
+						err = r.runLockOnlyWorkload(mutex, numClients, clientID, lockName, runPhase, latencyChan)
 					case constants.WORKLOAD_TYPE_LOCK_MIXED_READ, constants.WORKLOAD_TYPE_LOCK_MIXED_WRITE:
-						err = r.runLockMixedWorkload(mutex, rg, key, clientID, lockName, runPhase, latencyChan)
+						err = r.runLockMixedWorkload(mutex, rg, key, numClients, clientID, lockName, runPhase, latencyChan)
 					case constants.WORKLOAD_TYPE_LOCK_CONTENTION:
-						err = r.runLockOnlyWorkload(mutex, clientID, lockName, runPhase, latencyChan)
+						err = r.runLockOnlyWorkload(mutex, numClients, clientID, lockName, runPhase, latencyChan)
 					}
 
 					if err != nil {
