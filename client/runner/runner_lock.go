@@ -263,6 +263,7 @@ func (r *BenchmarkRunnerLock) runLockMixedWorkload(mutex *concurrency.Mutex, rg 
 				RunPhase:   runPhase,
 				StatusCode: statusCode,
 				StatusText: statusText,
+				ClientID:   clientID,
 				NumClients: numClients,
 			},
 			LockName:         lockName,
