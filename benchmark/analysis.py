@@ -1,6 +1,4 @@
-# import numpy as np
 import polars as pl
-import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
 import os
@@ -48,7 +46,6 @@ class EtcdPerfAnalyzer:
 
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        sns.set_theme(style="whitegrid")
         plt.rcParams["figure.figsize"] = [12, 6]
 
     def load_metrics(self, path: Path, scenario: str) -> pl.DataFrame:
@@ -571,7 +568,6 @@ class SystemMetricsAnalyzer:
 
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        sns.set_theme(style="whitegrid")
         plt.rcParams["figure.figsize"] = [12, 6]
 
     def load_metrics(self, cpu_path, mem_path):
