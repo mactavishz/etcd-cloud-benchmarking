@@ -120,12 +120,14 @@ class EtcdPerfAnalyzer:
             .alias("relative_time")
         )
 
-    def plot_latency_comparison(self, data: Dict, workload_type: str, output_dir: str):
+    def plot_latency_comparison(
+        self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
+    ):
         """Generate latency comparison plot."""
         plt.figure()
         print(f"Analyzing latency comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
-            metrics = self.calculate_latency_metrics(df, sample_rate="30s")
+            metrics = self.calculate_latency_metrics(df, sample_rate=sample_rate)
             plt.plot(
                 metrics["relative_time"],
                 metrics["latency"],
@@ -141,14 +143,14 @@ class EtcdPerfAnalyzer:
         plt.close()
 
     def plot_throughput_comparison(
-        self, data: Dict, workload_type: str, output_dir: str
+        self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
     ):
         """Generate throughput comparison plot."""
         plt.figure()
         print(f"Analyzing throughput comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             metrics = self.calculate_throughput_metrics(
-                df, sla_threshold=100, rolling_window="1s", sample_rate="30s"
+                df, sla_threshold=100, rolling_window="1s", sample_rate=sample_rate
             )
             plt.plot(
                 metrics["relative_time"],
@@ -295,14 +297,14 @@ class EtcdPerfAnalyzer:
         plt.close()
 
     def plot_error_rate_comparison(
-        self, data: Dict, workload_type: str, output_dir: str
+        self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
     ):
         """Generate error rate comparison plot over time."""
         plt.figure()
         print(f"Analyzing error rate comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             # Calculate error rate per minute
-            error_metrics = df.group_by_dynamic("timestamp", every="1m").agg(
+            error_metrics = df.group_by_dynamic("timestamp", every=sample_rate).agg(
                 [
                     (
                         pl.col("status_code")
@@ -489,23 +491,23 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][1],
                     results[workload]["original_dfs"][2],
                     workload,
-                    "30s",
+                    "15s",
                     output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
-                    results, workload, Path(output_dir) / "latency"
+                    results, workload, "15s", Path(output_dir) / "latency"
                 )
                 self.plot_throughput_comparison(
-                    results, workload, Path(output_dir) / "throughput"
+                    results, workload, "15s", Path(output_dir) / "throughput"
                 )
                 self.plot_latency_distribution(
                     results, workload, Path(output_dir) / "distribution"
                 )
                 self.plot_error_rate_comparison(
-                    results, workload, Path(output_dir) / "error_rate"
+                    results, workload, "15s", Path(output_dir) / "error_rate"
                 )
                 self.analyze_load_response(
                     results, workload, Path(output_dir) / "scalability"
@@ -540,23 +542,23 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][1],
                     results[workload]["original_dfs"][2],
                     workload,
-                    "30s",
+                    "15s",
                     output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
-                    results, workload, Path(output_dir) / "latency"
+                    results, workload, "15s", Path(output_dir) / "latency"
                 )
                 self.plot_throughput_comparison(
-                    results, workload, Path(output_dir) / "throughput"
+                    results, workload, "15s", Path(output_dir) / "throughput"
                 )
                 self.plot_latency_distribution(
                     results, workload, Path(output_dir) / "distribution"
                 )
                 self.plot_error_rate_comparison(
-                    results, workload, Path(output_dir) / "error_rate"
+                    results, workload, "15s", Path(output_dir) / "error_rate"
                 )
                 self.analyze_load_response(
                     results, workload, Path(output_dir) / "scalability"
