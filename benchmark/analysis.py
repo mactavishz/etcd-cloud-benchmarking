@@ -177,131 +177,93 @@ class EtcdPerfAnalyzer:
         plt.savefig(f"{output_dir}/throughput_{workload_type}.png")
         plt.close()
 
-    def compute_baseline_throughput(self, df_1node: pl.DataFrame) -> pl.DataFrame:
+    def get_fixed_throughput_data(
+        self, df: pl.DataFrame, num_requests: int
+    ) -> pl.DataFrame:
         """
-        Compute cumulative requests for the 1-node setup to use as the baseline.
+        Get the first N requests from a dataframe, sorted by timestamp.
         """
         return (
-            df_1node.filter(pl.col("success"))
+            df.filter(pl.col("success"))
             .sort("timestamp")
-            .with_row_index(name="cumulative_requests")
+            .head(num_requests)
+            .select(["timestamp", "latency_ms"])
         )
 
-    def extract_matching_requests(
-        self, df_other: pl.DataFrame, baseline_df: pl.DataFrame
+    def calculate_progress_metrics(
+        self, df: pl.DataFrame, total_requests: int, sample_rate: str
     ) -> pl.DataFrame:
         """
-        Extract requests from df_other at the same cumulative request milestones as the baseline.
+        Calculate progress metrics including latency percentiles and progress percentage.
         """
-        df_other = (
-            df_other.filter(pl.col("success"))
-            .sort("timestamp")
-            .with_row_index(name="cumulative_requests")
-        )
-
-        # Use nearest match to find timestamps where other setups reached the same request count
-        aligned_df = baseline_df.join(
-            df_other, on="cumulative_requests", how="left"
-        ).select(
-            [
-                pl.col("timestamp_right").alias("aligned_timestamp"),
-                pl.col("latency_ms"),
-                pl.col("cumulative_requests"),
-            ]
-        )
-
-        return aligned_df
-
-    def normalize_progress_time(
-        self, df_aligned: pl.DataFrame, total_requests: int
-    ) -> pl.DataFrame:
-        """
-        Normalize progress time as a percentage (0% to 100%) of workload completion.
-        """
-        return df_aligned.with_columns(
-            (pl.col("cumulative_requests") / total_requests * 100).alias(
-                "progress_time"
+        return (
+            df.group_by_dynamic("timestamp", every=sample_rate)
+            .agg(
+                [
+                    pl.col("latency_ms").quantile(0.99).alias("latency_p99"),
+                    pl.len().alias("requests_in_window"),
+                ]
             )
-        )
-
-    def resample_latency(self, df: pl.DataFrame, sample_rate) -> pl.DataFrame:
-        """
-        Resample the latency data into 1-minute intervals after extracting matching requests.
-        """
-        if "timestamp" in df.columns:
-            df = df.rename({"timestamp": "aligned_timestamp"})
-
-        # Forward fill any remaining nulls in other columns
-        df = df.fill_null(strategy="forward")
-
-        # Sort the dataframe by aligned_timestamp before grouping
-        df = df.sort("aligned_timestamp")
-
-        return df.group_by_dynamic("aligned_timestamp", every=sample_rate).agg(
-            pl.col("latency_ms").quantile(0.99).alias("latency_p99"),
-            pl.col("cumulative_requests").max(),
+            .with_columns(
+                [
+                    pl.col("requests_in_window").cum_sum().alias("cumulative_requests"),
+                    (
+                        pl.col("requests_in_window").cum_sum() / total_requests * 100
+                    ).alias("progress"),
+                ]
+            )
         )
 
     def normalize_latency_progress(
-        self, df_1node, df_3node, df_5node, workload_type, sample_rate, output_dir
+        self, df_1node, df_3node, df_5node, workload_type: str, sample_rate: str
     ) -> Dict:
         """
-        Normalize progress time and plot latency in progress time for different node setups.
+        Normalize progress time and calculate latency metrics for different node setups.
         """
+        # Get the number of successful requests from 1-node setup
+        num_requests = len(df_1node.filter(pl.col("success")))
 
-        # Compute baseline throughput from 1-node
-        baseline_df = self.compute_baseline_throughput(df_1node)
-        total_requests = baseline_df[
-            "cumulative_requests"
-        ].max()  # Total number of requests for normalization
+        print(
+            f"Normalizing latency progress for {workload_type} with {num_requests} reqs"
+        )
 
-        # Extract equivalent requests for 3-node and 5-node
-        aligned_3node = self.extract_matching_requests(df_3node, baseline_df)
-        aligned_5node = self.extract_matching_requests(df_5node, baseline_df)
+        data_1node = self.get_fixed_throughput_data(df_1node, num_requests)
+        data_3node = self.get_fixed_throughput_data(df_3node, num_requests)
+        data_5node = self.get_fixed_throughput_data(df_5node, num_requests)
 
-        # Resample latency values
-        baseline_df = self.resample_latency(baseline_df, sample_rate)
-        aligned_3node = self.resample_latency(aligned_3node, sample_rate)
-        aligned_5node = self.resample_latency(aligned_5node, sample_rate)
+        df1 = self.calculate_progress_metrics(data_1node, num_requests, sample_rate)
+        df3 = self.calculate_progress_metrics(data_3node, num_requests, sample_rate)
+        df5 = self.calculate_progress_metrics(data_5node, num_requests, sample_rate)
 
-        # Normalize progress time
-        baseline_df = self.normalize_progress_time(baseline_df, total_requests)
-        aligned_3node = self.normalize_progress_time(aligned_3node, total_requests)
-        aligned_5node = self.normalize_progress_time(aligned_5node, total_requests)
-
-        data_dict = {
-            "1-node": baseline_df,
-            "3-node": aligned_3node,
-            "5-node": aligned_5node,
+        return {
+            "1-node": df1,
+            "3-node": df3,
+            "5-node": df5,
+            "total_requests": num_requests,
         }
 
-        return data_dict
-
     def plot_latency_fixed_throughput_comparison(
-        self, data_dict, workload_type, output_dir
+        self, data_dict: Dict, workload_type: str, output_dir: str
     ):
         """
-        Plot latency in progress time with the same throughput level for different node setups.
+        Plot latency comparison with fixed throughput level for different node setups.
         """
         plt.figure(figsize=(20, 6))
-        print(
-            f"Analyzing latency with the same level of throughput for {workload_type}"
-        )
-        for node_config, df in data_dict.items():
-            plt.plot(
-                df["progress_time"],
-                df["latency_p99"],
-                label=f"{node_config} P99",
-            )
+        print(f"Analyzing latency with fixed throughput for {workload_type}")
 
-        # Extract the throughput level for the title
-        max_throughput = max(
-            df["cumulative_requests"].max() for df in data_dict.values()
-        )
+        for node_config, df in data_dict.items():
+            if node_config != "total_requests":
+                plt.plot(
+                    df["progress"],
+                    df["latency_p99"],
+                    label=f"{node_config} P99",
+                )
 
         plt.xlabel("Progress (%)")
         plt.ylabel("Latency (ms)")
-        plt.title(f"Latency Comparison - {workload_type} with {max_throughput} reqs")
+        plt.title(
+            f"Latency Comparison - {workload_type} with {data_dict['total_requests']} requests"
+        )
         plt.legend()
         plt.grid(True)
         plt.savefig(f"{output_dir}/latency_{workload_type}_fixed_throughput.png")
@@ -509,7 +471,6 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][2],
                     workload,
                     "5s",
-                    output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
@@ -560,7 +521,6 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][2],
                     workload,
                     "5s",
-                    output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
