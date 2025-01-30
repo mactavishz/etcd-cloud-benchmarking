@@ -46,7 +46,6 @@ class EtcdPerfAnalyzer:
 
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        plt.rcParams["figure.figsize"] = [12, 6]
 
     def load_metrics(self, path: Path, scenario: str) -> pl.DataFrame:
         df: pl.DataFrame = pl.read_csv(
@@ -84,8 +83,9 @@ class EtcdPerfAnalyzer:
 
         min_timestamp = resampled_df["timestamp"].min()
         return resampled_df.with_columns(
-            ((pl.col("timestamp") - min_timestamp).dt.total_seconds() / 60)
-            .clip(0, 25)
+            (pl.col("timestamp") - min_timestamp)
+            .dt.total_seconds()
+            .clip(0, 1500)
             .alias("relative_time")
         )
 
@@ -115,8 +115,9 @@ class EtcdPerfAnalyzer:
         )
         min_timestamp = resampled_df["timestamp"].min()
         return resampled_df.with_columns(
-            ((pl.col("timestamp") - min_timestamp).dt.total_seconds() / 60)
-            .clip(0, 25)
+            (pl.col("timestamp") - min_timestamp)
+            .dt.total_seconds()
+            .clip(0, 1500)
             .alias("relative_time")
         )
 
@@ -124,7 +125,7 @@ class EtcdPerfAnalyzer:
         self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
     ):
         """Generate latency comparison plot."""
-        plt.figure()
+        plt.figure(figsize=(20, 6))
         print(f"Analyzing latency comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             metrics = self.calculate_latency_metrics(df, sample_rate=sample_rate)
@@ -134,7 +135,12 @@ class EtcdPerfAnalyzer:
                 label=f"{self.node_configs[i]} P99",
             )
 
-        plt.xlabel("Benchmark Duration (minutes)")
+        # Set x-axis ticks at 60-second intervals
+        max_time = 60 * 25
+        ticks = list(range(0, int(max_time) + 60, 60))
+        plt.xticks(ticks, rotation=45)
+
+        plt.xlabel("Benchmark Duration (seconds)")
         plt.ylabel("Latency (ms)")
         plt.title(f"Latency Comparison - {workload_type}")
         plt.legend()
@@ -146,7 +152,7 @@ class EtcdPerfAnalyzer:
         self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
     ):
         """Generate throughput comparison plot."""
-        plt.figure()
+        plt.figure(figsize=(20, 6))
         print(f"Analyzing throughput comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             metrics = self.calculate_throughput_metrics(
@@ -158,7 +164,12 @@ class EtcdPerfAnalyzer:
                 label=self.node_configs[i],
             )
 
-        plt.xlabel("Benchmark Duration (minutes)")
+        # Set x-axis ticks at 60-second intervals
+        max_time = 60 * 25
+        ticks = list(range(0, int(max_time) + 60, 60))
+        plt.xticks(ticks, rotation=45)
+
+        plt.xlabel("Benchmark Duration (seconds)")
         plt.ylabel("Throughput (req/s)")
         plt.title(f"Throughput Comparison - {workload_type}, (Latency < 100ms)")
         plt.legend()
@@ -272,7 +283,7 @@ class EtcdPerfAnalyzer:
         """
         Plot latency in progress time with the same throughput level for different node setups.
         """
-        plt.figure()
+        plt.figure(figsize=(20, 6))
         print(
             f"Analyzing latency with the same level of throughput for {workload_type}"
         )
@@ -300,7 +311,7 @@ class EtcdPerfAnalyzer:
         self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
     ):
         """Generate error rate comparison plot over time."""
-        plt.figure()
+        plt.figure(figsize=(20, 6))
         print(f"Analyzing error rate comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
             # Calculate error rate per minute
@@ -319,8 +330,9 @@ class EtcdPerfAnalyzer:
 
             min_timestamp = error_metrics["timestamp"].min()
             error_metrics = error_metrics.with_columns(
-                ((pl.col("timestamp") - min_timestamp).dt.total_seconds() / 60)
-                .clip(0, 25)
+                (pl.col("timestamp") - min_timestamp)
+                .dt.total_seconds()
+                .clip(0, 1500)
                 .alias("relative_time")
             )
 
@@ -329,6 +341,11 @@ class EtcdPerfAnalyzer:
                 error_metrics["error_rate"] * 100,  # Convert to percentage
                 label=f"{self.node_configs[i]}",
             )
+
+        # Set x-axis ticks at 60-second intervals
+        max_time = 60 * 25
+        ticks = list(range(0, int(max_time) + 60, 60))
+        plt.xticks(ticks, rotation=45)
 
         plt.xlabel("Benchmark Duration (minutes)")
         plt.ylabel("Error Rate (%)")
@@ -408,7 +425,7 @@ class EtcdPerfAnalyzer:
     def analyze_load_response(self, data: Dict, workload_type: str, output_dir: str):
         """Analyze load response between number of clients and latency."""
         print(f"Analyzing load response for {workload_type}")
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=(16, 9))
 
         colors = ["blue", "orange", "green"]  # One color for each node configuration
 
@@ -491,23 +508,23 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][1],
                     results[workload]["original_dfs"][2],
                     workload,
-                    "15s",
+                    "5s",
                     output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
-                    results, workload, "15s", Path(output_dir) / "latency"
+                    results, workload, "5s", Path(output_dir) / "latency"
                 )
                 self.plot_throughput_comparison(
-                    results, workload, "15s", Path(output_dir) / "throughput"
+                    results, workload, "5s", Path(output_dir) / "throughput"
                 )
                 self.plot_latency_distribution(
                     results, workload, Path(output_dir) / "distribution"
                 )
                 self.plot_error_rate_comparison(
-                    results, workload, "15s", Path(output_dir) / "error_rate"
+                    results, workload, "5s", Path(output_dir) / "error_rate"
                 )
                 self.analyze_load_response(
                     results, workload, Path(output_dir) / "scalability"
@@ -542,23 +559,23 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"][1],
                     results[workload]["original_dfs"][2],
                     workload,
-                    "15s",
+                    "5s",
                     output_dir,
                 )
                 self.plot_latency_fixed_throughput_comparison(
                     data_dict, workload, Path(output_dir) / "latency"
                 )
                 self.plot_latency_comparison(
-                    results, workload, "15s", Path(output_dir) / "latency"
+                    results, workload, "5s", Path(output_dir) / "latency"
                 )
                 self.plot_throughput_comparison(
-                    results, workload, "15s", Path(output_dir) / "throughput"
+                    results, workload, "5s", Path(output_dir) / "throughput"
                 )
                 self.plot_latency_distribution(
                     results, workload, Path(output_dir) / "distribution"
                 )
                 self.plot_error_rate_comparison(
-                    results, workload, "15s", Path(output_dir) / "error_rate"
+                    results, workload, "5s", Path(output_dir) / "error_rate"
                 )
                 self.analyze_load_response(
                     results, workload, Path(output_dir) / "scalability"
@@ -570,7 +587,6 @@ class SystemMetricsAnalyzer:
 
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        plt.rcParams["figure.figsize"] = [12, 6]
 
     def load_metrics(self, cpu_path, mem_path):
         """
@@ -614,7 +630,7 @@ class SystemMetricsAnalyzer:
         """
         Plot CPU or Memory utilization for different nodes over time.
         """
-        plt.figure()
+        plt.figure(figsize=(12, 6))
         print(f"Analyzing {metric_name} utilization for {workload} in {node_config}")
         nodes = df.columns[1:]  # Exclude timestamp
         colors = plt.get_cmap("tab10").colors  # Use a standard color map
