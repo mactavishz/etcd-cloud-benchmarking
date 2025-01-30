@@ -120,7 +120,7 @@ For `benchclient`, there are only one flag available:
 ./bin/benchclient -h
 ````
 
-### Running the Benchmark Locally
+### Testing the Benchmark Locally
 
 First, you have to initialize the etcd cluster on your local machine. You can run the following command in a separate terminal session:
 
