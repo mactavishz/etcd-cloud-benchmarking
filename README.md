@@ -23,8 +23,13 @@ If you are using MacOS on M1 chip, make sure your python is native to arm64 arch
 ### Setting up Environment
 
 If you are using mise, you can set up the environment by running the following command in the root directory of the project:
+
 ```bash
+# trust the mise.toml file
 mise trust
+
+# install the tools defined in the configuration file
+mise install
 ```
 
 First, install the go dependencies by running the following command in the root directory of the project:
