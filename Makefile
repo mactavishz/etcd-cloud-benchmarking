@@ -3,7 +3,7 @@ SUBDIR_CONTROL := control
 SUBDIR_API := api
 BUILD_DIR := ./bin
 DEFAULT_ETCD_DIR := ./default.etcd
-MODULES := ./client ./control ./data-generator
+MODULES := ./api ./client ./control ./data-generator
 MODULE_ROOT_NAME := csb
 
 .PHONY: gen client control run-client run-control clean test
@@ -34,4 +34,10 @@ test:
 	@for dir in $(MODULES); do \
 		echo "Testing $$dir..."; \
 		(cd $$dir && go clean -testcache && go test -v ./...) || exit 1; \
+	done
+
+install:
+	@for dir in $(MODULES); do \
+		echo "Installing go modules in $$dir..."; \
+		(cd $$dir && go mod tidy) || exit 1; \
 	done
