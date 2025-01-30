@@ -35,7 +35,7 @@ mise install
 First, install the go dependencies by running the following command in the root directory of the project:
 
 ```bash
-go work sync
+make install
 ```
 After that, you can try to run the following command to build the benchmark-related binaries:
 
