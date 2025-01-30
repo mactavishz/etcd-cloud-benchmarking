@@ -30,8 +30,17 @@ mise trust
 First, install the go dependencies by running the following command in the root directory of the project:
 
 ```bash
-go mod tidy
+go work sync
 ```
+After that, you can try to run the following command to build the benchmark-related binaries:
+
+```bash
+make
+
+# clean up the binaries
+make clean
+```
+
 Second, create the virtual environment for python and install the python dependencies by running the following command in the root directory of the project:
 
 ```bash
@@ -54,4 +63,8 @@ Third, set up the gcloud CLI by running the following command:
 gcloud init
 ```
 
-## Test and Deploy
+## Local Development and Testing
+
+## Running the Benchmark
+
+## Analysis
