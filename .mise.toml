@@ -2,9 +2,6 @@
 python = "3.12" # [optional] will be used for the venv
 go = "1.23"
 
-[settings]
-arch = "aarch64"
-
 [env]
 _.python.venv = ".venv" # relative to this file's directory
 
