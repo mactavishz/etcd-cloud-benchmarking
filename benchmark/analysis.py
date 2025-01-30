@@ -347,7 +347,7 @@ class EtcdPerfAnalyzer:
         ticks = list(range(0, int(max_time) + 60, 60))
         plt.xticks(ticks, rotation=45)
 
-        plt.xlabel("Benchmark Duration (minutes)")
+        plt.xlabel("Benchmark Duration (seconds)")
         plt.ylabel("Error Rate (%)")
         plt.title(f"Error Rate Comparison - {workload_type}")
         plt.legend()
@@ -646,7 +646,7 @@ class SystemMetricsAnalyzer:
                 label=f"{node}",
             )
 
-        plt.xlabel("Time")
+        plt.xlabel("Benchmark Duration (Minutes)")
         plt.ylabel(f"{metric_name} Utilization (%)")
         plt.title(f"{metric_name} Utilization Over Time")
         plt.legend()
