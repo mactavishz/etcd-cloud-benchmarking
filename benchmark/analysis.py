@@ -69,7 +69,7 @@ class EtcdPerfAnalyzer:
         return df
 
     def calculate_latency_metrics(
-        self, df: pl.DataFrame, sample_rate: str = "1m"
+        self, df: pl.DataFrame, sample_rate: str = "1m", percentile: float = 0.99
     ) -> pl.DataFrame:
         """Calculate latency metrics with specified window."""
         filtered_df = df.filter((pl.col("success")))
@@ -77,7 +77,7 @@ class EtcdPerfAnalyzer:
             "timestamp", every=sample_rate, start_by="window"
         ).agg(
             [
-                pl.col("latency_ms").quantile(0.99).alias("latency"),
+                pl.col("latency_ms").quantile(percentile).alias("latency"),
             ]
         )
 
@@ -122,17 +122,24 @@ class EtcdPerfAnalyzer:
         )
 
     def plot_latency_comparison(
-        self, data: Dict, workload_type: str, sample_rate: str, output_dir: str
+        self,
+        data: Dict,
+        workload_type: str,
+        sample_rate: str,
+        percentile: float,
+        output_dir: str,
     ):
         """Generate latency comparison plot."""
         plt.figure(figsize=(20, 6))
         print(f"Analyzing latency comparison for {workload_type}")
         for i, df in enumerate(data[workload_type]["original_dfs"]):
-            metrics = self.calculate_latency_metrics(df, sample_rate=sample_rate)
+            metrics = self.calculate_latency_metrics(
+                df, sample_rate=sample_rate, percentile=percentile
+            )
             plt.plot(
                 metrics["relative_time"],
                 metrics["latency"],
-                label=f"{self.node_configs[i]} P99",
+                label=f"{self.node_configs[i]} P{int(percentile * 100)}",
             )
 
         # Set x-axis ticks at 60-second intervals
@@ -145,7 +152,9 @@ class EtcdPerfAnalyzer:
         plt.title(f"Latency Comparison - {workload_type}")
         plt.legend()
         plt.grid(True)
-        plt.savefig(f"{output_dir}/latency_{workload_type}.png")
+        plt.savefig(
+            f"{output_dir}/latency_p{int(percentile * 100)}_{workload_type}.png"
+        )
         plt.close()
 
     def plot_throughput_comparison(
@@ -191,7 +200,7 @@ class EtcdPerfAnalyzer:
         )
 
     def calculate_progress_metrics(
-        self, df: pl.DataFrame, total_requests: int, sample_rate: str
+        self, df: pl.DataFrame, total_requests: int, sample_rate: str, percentile: float
     ) -> pl.DataFrame:
         """
         Calculate progress metrics including latency percentiles and progress percentage.
@@ -200,7 +209,7 @@ class EtcdPerfAnalyzer:
             df.group_by_dynamic("timestamp", every=sample_rate)
             .agg(
                 [
-                    pl.col("latency_ms").quantile(0.99).alias("latency_p99"),
+                    pl.col("latency_ms").quantile(percentile).alias("latency"),
                     pl.len().alias("requests_in_window"),
                 ]
             )
@@ -215,7 +224,13 @@ class EtcdPerfAnalyzer:
         )
 
     def normalize_latency_progress(
-        self, df_1node, df_3node, df_5node, workload_type: str, sample_rate: str
+        self,
+        df_1node,
+        df_3node,
+        df_5node,
+        workload_type: str,
+        sample_rate: str,
+        percentile: float,
     ) -> Dict:
         """
         Normalize progress time and calculate latency metrics for different node setups.
@@ -231,9 +246,15 @@ class EtcdPerfAnalyzer:
         data_3node = self.get_fixed_throughput_data(df_3node, num_requests)
         data_5node = self.get_fixed_throughput_data(df_5node, num_requests)
 
-        df1 = self.calculate_progress_metrics(data_1node, num_requests, sample_rate)
-        df3 = self.calculate_progress_metrics(data_3node, num_requests, sample_rate)
-        df5 = self.calculate_progress_metrics(data_5node, num_requests, sample_rate)
+        df1 = self.calculate_progress_metrics(
+            data_1node, num_requests, sample_rate, percentile
+        )
+        df3 = self.calculate_progress_metrics(
+            data_3node, num_requests, sample_rate, percentile
+        )
+        df5 = self.calculate_progress_metrics(
+            data_5node, num_requests, sample_rate, percentile
+        )
 
         return {
             "1-node": df1,
@@ -243,7 +264,7 @@ class EtcdPerfAnalyzer:
         }
 
     def plot_latency_fixed_throughput_comparison(
-        self, data_dict: Dict, workload_type: str, output_dir: str
+        self, data_dict: Dict, workload_type: str, percentile: float, output_dir: str
     ):
         """
         Plot latency comparison with fixed throughput level for different node setups.
@@ -255,8 +276,8 @@ class EtcdPerfAnalyzer:
             if node_config != "total_requests":
                 plt.plot(
                     df["progress"],
-                    df["latency_p99"],
-                    label=f"{node_config} P99",
+                    df["latency"],
+                    label=f"{node_config} P{int(percentile * 100)}",
                 )
 
         plt.xlabel("Progress (%)")
@@ -266,7 +287,9 @@ class EtcdPerfAnalyzer:
         )
         plt.legend()
         plt.grid(True)
-        plt.savefig(f"{output_dir}/latency_{workload_type}_fixed_throughput.png")
+        plt.savefig(
+            f"{output_dir}/latency_p{int(percentile * 100)}_{workload_type}_fixed_throughput.png"
+        )
         plt.close()
 
     def plot_error_rate_comparison(
@@ -465,19 +488,25 @@ class EtcdPerfAnalyzer:
                     results[workload]["original_dfs"].append(raw_df)
 
             if results[workload]["original_dfs"]:
-                data_dict = self.normalize_latency_progress(
-                    results[workload]["original_dfs"][0],
-                    results[workload]["original_dfs"][1],
-                    results[workload]["original_dfs"][2],
-                    workload,
-                    "5s",
-                )
-                self.plot_latency_fixed_throughput_comparison(
-                    data_dict, workload, Path(output_dir) / "latency"
-                )
-                self.plot_latency_comparison(
-                    results, workload, "5s", Path(output_dir) / "latency"
-                )
+                for percentile in [0.50, 0.95, 0.99]:
+                    data_dict = self.normalize_latency_progress(
+                        results[workload]["original_dfs"][0],
+                        results[workload]["original_dfs"][1],
+                        results[workload]["original_dfs"][2],
+                        workload,
+                        "5s",
+                        percentile,
+                    )
+                    self.plot_latency_fixed_throughput_comparison(
+                        data_dict, workload, percentile, Path(output_dir) / "latency"
+                    )
+                    self.plot_latency_comparison(
+                        results,
+                        workload,
+                        "5s",
+                        percentile,
+                        Path(output_dir) / "latency",
+                    )
                 self.plot_throughput_comparison(
                     results, workload, "5s", Path(output_dir) / "throughput"
                 )
@@ -515,19 +544,25 @@ class EtcdPerfAnalyzer:
                     raw_df = self.load_metrics(csv_filepath, "lock")
                     results[workload]["original_dfs"].append(raw_df)
             if results[workload]["original_dfs"]:
-                data_dict = self.normalize_latency_progress(
-                    results[workload]["original_dfs"][0],
-                    results[workload]["original_dfs"][1],
-                    results[workload]["original_dfs"][2],
-                    workload,
-                    "5s",
-                )
-                self.plot_latency_fixed_throughput_comparison(
-                    data_dict, workload, Path(output_dir) / "latency"
-                )
-                self.plot_latency_comparison(
-                    results, workload, "5s", Path(output_dir) / "latency"
-                )
+                for percentile in [0.50, 0.95, 0.99]:
+                    data_dict = self.normalize_latency_progress(
+                        results[workload]["original_dfs"][0],
+                        results[workload]["original_dfs"][1],
+                        results[workload]["original_dfs"][2],
+                        workload,
+                        "5s",
+                        percentile,
+                    )
+                    self.plot_latency_fixed_throughput_comparison(
+                        data_dict, workload, percentile, Path(output_dir) / "latency"
+                    )
+                    self.plot_latency_comparison(
+                        results,
+                        workload,
+                        "5s",
+                        percentile,
+                        Path(output_dir) / "latency",
+                    )
                 self.plot_throughput_comparison(
                     results, workload, "5s", Path(output_dir) / "throughput"
                 )
