@@ -1,4 +1,8 @@
-# CSB Project WS2425
+# Etcd Cloud Benchmarking
+
+Etcd is a distributed key-value store that provides a reliable way to store data across a cluster of machines. It is widely used in the cloud-native ecosystem, such as Kubernetes, to store the configuration data. 
+
+We aim to benchmark the performance of etcd used as a key-value store and as a distributed lock service in the cloud environment, specifially on the Google Cloud Platform, but the benchmark can be easily extended to other cloud providers.
 
 This repository contains the code for the benchmark implementaion, benchmark raw data, analysis scripts, generated figures etc.
 
